@@ -1,0 +1,30 @@
+{
+  "name": "bitten",
+  "version": "0.0.0",
+  "description": "",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "rollup -c",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/antonytse/bitten.git"
+  },
+  "author": "Antony Tse",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/antonytse/bitten/issues"
+  },
+  "homepage": "https://github.com/antonytse/bitten#readme",
+  "devDependencies": {
+    "rollup": "^1.13.0",
+    "rollup-plugin-buble": "^0.19.6",
+    "rollup-plugin-commonjs": "^10.0.0",
+    "rollup-plugin-node-builtins": "^2.1.2",
+    "rollup-plugin-node-resolve": "^5.0.1"
+  },
+  "dependencies": {
+    "buffer": "^6.0.3"
+  }
+}
