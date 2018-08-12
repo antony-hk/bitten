@@ -105,13 +105,18 @@ function parseFormat(format) {
             lengthInBit = data.length * 8;
         }
 
+        let getter = data.getter || function (input) { return input };
+        let setter = data.setter || function (input) { return input };
+
         parsedFormat.push({
             key,
             arrayLength,
             lengthInBit,
             isString,
             startByte,
-            startBit
+            startBit,
+            getter,
+            setter,
         });
     }
 
@@ -140,6 +145,7 @@ export function bin2obj(buf, recordLength, format, keepBase64) {
                 isString,
                 startByte,
                 startBit,
+                getter,
             } = parsedFormat[i];
 
             let results = [];
@@ -167,7 +173,7 @@ export function bin2obj(buf, recordLength, format, keepBase64) {
                     );
                 }
 
-                results.push(result);
+                results.push(getter(result));
             }
 
             if (arrayLength) {
@@ -200,13 +206,18 @@ export function obj2bin(arr, recordLength, format) {
 
         for (let i = 0; i < parsedFormat.length; i++) {
             const {
-                key, lengthInBit, isString, startByte, startBit,
+                key,
+                lengthInBit,
+                isString,
+                startByte,
+                startBit,
+                setter,
             } = parsedFormat[i];
 
             if (isString) {
-                writeString(recordBuf, startByte, (lengthInBit / 8), record[key]);
+                writeString(recordBuf, startByte, (lengthInBit / 8), setter(record[key]));
             } else {
-                writeBitsLE(recordBuf, startByte, startBit, lengthInBit, record[key]);
+                writeBitsLE(recordBuf, startByte, startBit, lengthInBit, setter(record[key]));
             }
         }
 
