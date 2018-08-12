@@ -80,6 +80,7 @@ function parseFormat(format) {
             throw new Error(`Incorrect type of ``startByte``. (format with key = ${data.key})`);
         }
 
+        let arrayLength = data.arrayLength || 0;
         let isString = data.isString || false;
         let startBit = data.startBit;
         if (startBit !== undefined) {
@@ -105,14 +106,19 @@ function parseFormat(format) {
         }
 
         parsedFormat.push({
-            key, lengthInBit, isString, startByte, startBit
+            key,
+            arrayLength,
+            lengthInBit,
+            isString,
+            startByte,
+            startBit
         });
     }
 
     return parsedFormat;
 }
 
-export function bin2obj(buf, recordLength, format) {
+export function bin2obj(buf, recordLength, format, keepBase64) {
     const parsedFormat = parseFormat(format);
     const numRecords = Math.floor(buf.length / recordLength);
     let records = [];
@@ -122,15 +128,52 @@ export function bin2obj(buf, recordLength, format) {
 
         const recordBuf = buf.slice(recordLength * j, recordLength * (j + 1));
 
+        if (keepBase64) {
+            record.base64 = recordBuf.toString('base64');
+        }
+
         for (let i = 0; i < parsedFormat.length; i++) {
             const {
-                key, lengthInBit, isString, startByte, startBit,
+                key,
+                arrayLength,
+                lengthInBit,
+                isString,
+                startByte,
+                startBit,
             } = parsedFormat[i];
 
-            if (isString) {
-                record[key] = readString(recordBuf, startByte, (lengthInBit / 8));
+            let result = [];
+            let numRead = arrayLength || 1;
+
+            for (let i = 0; i < numRead; i++) {
+                if (isString) {
+                    result.push(
+                        readString(
+                            recordBuf,
+                            startByte + (i * (lengthInBit / 8)),
+                            (lengthInBit / 8)
+                        )
+                    );
+                } else {
+                    const correctedStartByte = startByte + (i * Math.floor(lengthInBit / 8));
+                    const correctedStartBit = (lengthInBit % 8);
+
+                    result.push(
+                        readBitsLE(
+                            recordBuf,
+                            correctedStartByte,
+                            correctedStartBit,
+                            lengthInBit,
+                            false
+                        )
+                    );
+                }
+            }
+
+            if (arrayLength) {
+                record[key] = result;
             } else {
-                record[key] = readBitsLE(recordBuf, startByte, startBit, lengthInBit, false);
+                record[key] = result[0];
             }
         }
 
@@ -146,7 +189,14 @@ export function obj2bin(arr, recordLength, format) {
 
     for (let i = 0; i < arr.length; i++) {
         const record = arr[i];
-        let recordBuf = Buffer.alloc(recordLength);
+
+        let recordBuf;
+
+        if (record.base64) {
+            recordBuf = Buffer.from(record.base64, 'base64');
+        } else {
+            recordBuf = Buffer.alloc(recordLength);
+        }
 
         for (let i = 0; i < parsedFormat.length; i++) {
             const {
