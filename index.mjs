@@ -142,38 +142,38 @@ export function bin2obj(buf, recordLength, format, keepBase64) {
                 startBit,
             } = parsedFormat[i];
 
-            let result = [];
+            let results = [];
             let numRead = arrayLength || 1;
 
             for (let i = 0; i < numRead; i++) {
+                let result;
+
                 if (isString) {
-                    result.push(
-                        readString(
-                            recordBuf,
-                            startByte + (i * (lengthInBit / 8)),
-                            (lengthInBit / 8)
-                        )
+                    result = readString(
+                        recordBuf,
+                        startByte + (i * (lengthInBit / 8)),
+                        (lengthInBit / 8)
                     );
                 } else {
-                    const correctedStartByte = startByte + (i * Math.floor(lengthInBit / 8));
-                    const correctedStartBit = (lengthInBit % 8);
+                    const correctedStartByte = Math.trunc((startByte * 8 + (startBit + i * lengthInBit)) / 8);
+                    const correctedStartBit = (startBit + i * lengthInBit) % 8;
 
-                    result.push(
-                        readBitsLE(
-                            recordBuf,
-                            correctedStartByte,
-                            correctedStartBit,
-                            lengthInBit,
-                            false
-                        )
+                    result = readBitsLE(
+                        recordBuf,
+                        correctedStartByte,
+                        correctedStartBit,
+                        lengthInBit,
+                        false
                     );
                 }
+
+                results.push(result);
             }
 
             if (arrayLength) {
-                record[key] = result;
+                record[key] = results;
             } else {
-                record[key] = result[0];
+                record[key] = results[0];
             }
         }
 
