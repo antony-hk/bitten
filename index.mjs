@@ -2,10 +2,20 @@ export function readString(buf, offset, length) {
     return buf.slice(offset, offset + length).toString('utf8').replace(/\0/g, '');
 }
 
+export function readStringWithInitialNull(buf, offset, length) {
+    return readString(buf, offset + 1, length - 1);
+}
+
 export function writeString(buf, offset, length, string) {
     buf.fill(0, offset, offset + length);
     string += '\u0000';
     return buf.write(string, offset, length, 'utf8');
+}
+
+export function writeStringWithInitialNull(buf, offset, length) {
+    buf.fill(0, offset, offset + length);
+    string += '\u0000';
+    return buf.write(string, offset + 1, length - 1, 'utf8');
 }
 
 export function readBitsLE(buf, startByteOffset, startBitOffset, lengthInBit, signed = false) {
@@ -58,7 +68,7 @@ export function writeBitsLE(buf, startByteOffset, startBit, lengthInBit, value) 
 
 function parseFormat(format) {
     if (!Array.isArray(format)) {
-        return;
+        throw new Error('`format` is not an array.');
     }
     let parsedFormat = [];
 
@@ -75,13 +85,19 @@ function parseFormat(format) {
         }
         usedKeys.add(key);
 
+        let subFormat = data.subFormat;
+        if (subFormat !== undefined && !Array.isArray(subFormat)) {
+            throw new Error('`subFormat` is provided but it is not an array.');
+        }
+
         let startByte = data.startByte;
         if (typeof startByte !== 'number') {
-            throw new Error(`Incorrect type of ``startByte``. (format with key = ${data.key})`);
+            throw new Error(`Incorrect type of \`startByte\`. (format with key = ${data.key})`);
         }
 
         let arrayLength = data.arrayLength || 0;
         let isString = data.isString || false;
+        let isStringWithInitialNull = data.isStringWithInitialNull || false;
         let startBit = data.startBit;
         if (startBit !== undefined) {
             if (isString) {
@@ -113,8 +129,10 @@ function parseFormat(format) {
             arrayLength,
             lengthInBit,
             isString,
+            isStringWithInitialNull,
             startByte,
             startBit,
+            subFormat,
             getter,
             setter,
         });
@@ -143,8 +161,10 @@ export function bin2obj(buf, recordLength, format, keepBase64) {
                 arrayLength,
                 lengthInBit,
                 isString,
+                isStringWithInitialNull,
                 startByte,
                 startBit,
+                subFormat,
                 getter,
             } = parsedFormat[i];
 
@@ -154,8 +174,19 @@ export function bin2obj(buf, recordLength, format, keepBase64) {
             for (let i = 0; i < numRead; i++) {
                 let result;
 
-                if (isString) {
+                if (subFormat) {
+                    const resultLength = (lengthInBit / 8);
+                    const resultBuf = recordBuf.slice(startByte + resultLength * i, (startByte + resultLength * (i+1)));
+
+                    result = bin2obj(resultBuf, resultLength, subFormat, keepBase64)[0];
+                } else if (isString) {
                     result = readString(
+                        recordBuf,
+                        startByte + (i * (lengthInBit / 8)),
+                        (lengthInBit / 8)
+                    );
+                } else if (isStringWithInitialNull) {
+                    result = readStringWithInitialNull(
                         recordBuf,
                         startByte + (i * (lengthInBit / 8)),
                         (lengthInBit / 8)
