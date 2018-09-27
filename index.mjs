@@ -2,20 +2,10 @@ export function readString(buf, offset, length) {
     return buf.slice(offset, offset + length).toString('utf8').replace(/\0/g, '');
 }
 
-export function readStringWithInitialNull(buf, offset, length) {
-    return readString(buf, offset + 1, length - 1);
-}
-
 export function writeString(buf, offset, length, string) {
     buf.fill(0, offset, offset + length);
     string += '\u0000';
     return buf.write(string, offset, length, 'utf8');
-}
-
-export function writeStringWithInitialNull(buf, offset, length) {
-    buf.fill(0, offset, offset + length);
-    string += '\u0000';
-    return buf.write(string, offset + 1, length - 1, 'utf8');
 }
 
 export function readBitsLE(buf, startByteOffset, startBitOffset, lengthInBit, signed = false) {
@@ -161,7 +151,6 @@ export function bin2obj(buf, recordLength, format, keepBase64) {
                 arrayLength,
                 lengthInBit,
                 isString,
-                isStringWithInitialNull,
                 startByte,
                 startBit,
                 subFormat,
@@ -181,12 +170,6 @@ export function bin2obj(buf, recordLength, format, keepBase64) {
                     result = bin2obj(resultBuf, resultLength, subFormat, keepBase64)[0];
                 } else if (isString) {
                     result = readString(
-                        recordBuf,
-                        startByte + (i * (lengthInBit / 8)),
-                        (lengthInBit / 8)
-                    );
-                } else if (isStringWithInitialNull) {
-                    result = readStringWithInitialNull(
                         recordBuf,
                         startByte + (i * (lengthInBit / 8)),
                         (lengthInBit / 8)
@@ -238,17 +221,44 @@ export function obj2bin(arr, recordLength, format) {
         for (let i = 0; i < parsedFormat.length; i++) {
             const {
                 key,
+                arrayLength,
                 lengthInBit,
                 isString,
                 startByte,
                 startBit,
+                subFormat,
                 setter,
             } = parsedFormat[i];
 
-            if (isString) {
-                writeString(recordBuf, startByte, (lengthInBit / 8), setter(record[key]));
-            } else {
-                writeBitsLE(recordBuf, startByte, startBit, lengthInBit, setter(record[key]));
+            // Put the data into an array if the arrayLength is 0
+            const data = ((arrayLength === 0) ? [record[key]] : record[key]);
+
+            const numWrites = (arrayLength || 1);
+
+            for (let i = 0; i < numWrites; i++) {
+                if (subFormat) {
+                    const resultLength = (lengthInBit / 8);
+                    const subRecordBuf = obj2bin([data[i]], resultLength, subFormat);
+                    subRecordBuf.copy(recordBuf, (startByte + resultLength * i));
+                } else if (isString) {
+                    writeString(
+                        recordBuf,
+                        startByte + (i * (lengthInBit / 8)),
+                        (lengthInBit / 8),
+                        setter(data[i])
+                    );
+                } else {
+                    const correctedStartByte = Math.trunc((startByte * 8 + (startBit + i * lengthInBit)) / 8);
+                    const correctedStartBit = (startBit + i * lengthInBit) % 8;
+
+                    writeBitsLE(
+                        recordBuf,
+                        correctedStartByte,
+                        correctedStartBit,
+                        lengthInBit,
+                        setter(data[i])
+                    );
+                }
             }
         }
 
