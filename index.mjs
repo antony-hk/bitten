@@ -145,7 +145,7 @@ export function bin2obj(buf, recordLength, format, keepBase64) {
             record.base64 = recordBuf.toString('base64');
         }
 
-        for (let i = 0; i < parsedFormat.length; i++) {
+        for (let z = 0; z < parsedFormat.length; z++) {
             const {
                 key,
                 arrayLength,
@@ -155,7 +155,7 @@ export function bin2obj(buf, recordLength, format, keepBase64) {
                 startBit,
                 subFormat,
                 getter,
-            } = parsedFormat[i];
+            } = parsedFormat[z];
 
             let results = [];
             let numRead = arrayLength || 1;
@@ -210,15 +210,14 @@ export function obj2bin(arr, recordLength, format) {
     for (let i = 0; i < arr.length; i++) {
         const record = arr[i];
 
-        let recordBuf;
+        let recordBuf = Buffer.alloc(recordLength);
 
         if (record.base64) {
-            recordBuf = Buffer.from(record.base64, 'base64');
-        } else {
-            recordBuf = Buffer.alloc(recordLength);
+            const data = Buffer.from(record.base64, 'base64');
+            data.copy(recordBuf, 0, 0, Math.min(recordLength, data.length));
         }
 
-        for (let i = 0; i < parsedFormat.length; i++) {
+        for (let z = 0; z < parsedFormat.length; z++) {
             const {
                 key,
                 arrayLength,
@@ -228,7 +227,7 @@ export function obj2bin(arr, recordLength, format) {
                 startBit,
                 subFormat,
                 setter,
-            } = parsedFormat[i];
+            } = parsedFormat[z];
 
             // Put the data into an array if the arrayLength is 0
             const data = ((arrayLength === 0) ? [record[key]] : record[key]);
