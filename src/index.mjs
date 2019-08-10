@@ -26,8 +26,10 @@ export function readBitsLE(buf, startByteOffset, startBitOffset, lengthInBit, si
 
             let byteData = readBitsLE(buf, startByteOffset + currentByteOffset, 0, Math.min(remainingBitLength, 8));
             ret = ret + (byteData << currentBitLength);    // LE (PS4, PC)
-            remainingBitLength -= Math.min(remainingBitLength, 8);
-            currentBitLength += Math.min(remainingBitLength, 8);
+
+            const delta = Math.min(remainingBitLength, 8);
+            remainingBitLength -= delta;
+            currentBitLength += delta;
         }
     }
 
