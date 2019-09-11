@@ -58,6 +58,20 @@ export function writeBitsLE(buf, startByteOffset, startBit, lengthInBit, value) 
     }
 }
 
+export function readBitsBE(buf, startByteOffset, startBitOffset, lengthInBit, signed = false) {
+    const lengthInByte = Math.floor(lengthInBit / 8);
+    let ret = 0;
+
+    for (let i = 0; i < lengthInByte; i++) {
+        if (i) {
+            ret <<= 8;
+        }
+        ret |= buf.readUInt8(startByteOffset + i);
+    }
+
+    return ret;
+}
+
 function parseFormat(format) {
     if (!Array.isArray(format)) {
         throw new Error('`format` is not an array.');
@@ -88,12 +102,18 @@ function parseFormat(format) {
         }
 
         let arrayLength = data.arrayLength || 0;
+        let isSigned = data.isSigned;
         let isString = data.isString || false;
         let isStringWithInitialNull = data.isStringWithInitialNull || false;
         let startBit = data.startBit;
+        if (isSigned !== undefined) {
+            if (isString) {
+                throw new Error(`\`isSigned\` is defined when the data is a string. (format with key = ${data.key})`);
+            }
+        }
         if (startBit !== undefined) {
             if (isString) {
-                throw new Error(```startBit`` is defined when the data is a string. (format with key = ${data.key})`);
+                throw new Error(`\`startBit\` is defined when the data is a string. (format with key = ${data.key})`);
             }
             if (typeof startBit !== 'number') {
                 throw new Error(`Incorrect type of ``startBit``. (format with key = ${data.key})`);
@@ -120,6 +140,7 @@ function parseFormat(format) {
             key,
             arrayLength,
             lengthInBit,
+            isSigned,
             isString,
             isStringWithInitialNull,
             startByte,
@@ -133,10 +154,11 @@ function parseFormat(format) {
     return parsedFormat;
 }
 
-export function bin2obj(buf, recordLength, format, keepBase64) {
+export function bin2obj(buf, recordLength, format, keepBase64, isBigEndian = false) {
     const parsedFormat = parseFormat(format);
     const numRecords = Math.floor(buf.length / recordLength);
     let records = [];
+    const readBitsFn = isBigEndian ? readBitsBE : readBitsLE;
 
     for (let j = 0; j < numRecords; j++) {
         let record = {};
@@ -153,6 +175,7 @@ export function bin2obj(buf, recordLength, format, keepBase64) {
                 arrayLength,
                 lengthInBit,
                 isString,
+                isSigned,
                 startByte,
                 startBit,
                 subFormat,
@@ -169,7 +192,7 @@ export function bin2obj(buf, recordLength, format, keepBase64) {
                     const resultLength = (lengthInBit / 8);
                     const resultBuf = recordBuf.slice(startByte + resultLength * i, (startByte + resultLength * (i+1)));
 
-                    result = bin2obj(resultBuf, resultLength, subFormat, keepBase64)[0];
+                    result = bin2obj(resultBuf, resultLength, subFormat, keepBase64, isBigEndian)[0];
                 } else if (isString) {
                     result = readString(
                         recordBuf,
@@ -180,12 +203,12 @@ export function bin2obj(buf, recordLength, format, keepBase64) {
                     const correctedStartByte = Math.trunc((startByte * 8 + (startBit + i * lengthInBit)) / 8);
                     const correctedStartBit = (startBit + i * lengthInBit) % 8;
 
-                    result = readBitsLE(
+                    result = readBitsFn(
                         recordBuf,
                         correctedStartByte,
                         correctedStartBit,
                         lengthInBit,
-                        false
+                        isSigned,
                     );
                 }
 
