@@ -261,16 +261,20 @@ export function obj2bin(arr, recordLength, format) {
 
             for (let i = 0; i < numWrites; i++) {
                 if (subFormat) {
-                    const resultLength = (lengthInBit / 8);
-                    const subRecordBuf = obj2bin([data[i]], resultLength, subFormat);
-                    subRecordBuf.copy(recordBuf, (startByte + resultLength * i));
+                    if (data[i] !== undefined) {
+                        const resultLength = (lengthInBit / 8);
+                        const subRecordBuf = obj2bin([data[i]], resultLength, subFormat);
+                        subRecordBuf.copy(recordBuf, (startByte + resultLength * i));
+                    }
                 } else if (isString) {
-                    writeString(
-                        recordBuf,
-                        startByte + (i * (lengthInBit / 8)),
-                        (lengthInBit / 8),
-                        setter(data[i])
-                    );
+                    if (data[i] !== undefined) {
+                        writeString(
+                            recordBuf,
+                            startByte + (i * (lengthInBit / 8)),
+                            (lengthInBit / 8),
+                            setter(data[i])
+                        );
+                    }
                 } else {
                     const correctedStartByte = Math.trunc((startByte * 8 + (startBit + i * lengthInBit)) / 8);
                     const correctedStartBit = (startBit + i * lengthInBit) % 8;
