@@ -59,17 +59,74 @@ export function writeBitsLE(buf, startByteOffset, startBit, lengthInBit, value) 
 }
 
 export function readBitsBE(buf, startByteOffset, startBitOffset, lengthInBit, signed = false) {
-    const lengthInByte = Math.floor(lengthInBit / 8);
+    startByteOffset += Math.floor(startBitOffset / 8);
+    startBitOffset %= 8;
+    const endByteOffset = Math.ceil((startByteOffset * 8 + startBitOffset + lengthInBit) / 8);
+    const endBitOffset = (startBitOffset + lengthInBit) % 8 || 8;
+
     let ret = 0;
 
-    for (let i = 0; i < lengthInByte; i++) {
-        if (i) {
-            ret <<= 8;
+    for (let i = startByteOffset; i < endByteOffset; i++) {
+        const isFirstByte = (i === startByteOffset);
+        const isLastByte = (i === endByteOffset - 1);
+        ret <<= 8;
+        ret |= buf.readUInt8(i);
+
+        if (isFirstByte) {
+            const mask = (0xFF >> startBitOffset);
+            ret &= mask;
         }
-        ret |= buf.readUInt8(startByteOffset + i);
+
+        if (isLastByte) {
+            ret >>= (8 - endBitOffset);
+        }
     }
 
     return ret;
+}
+
+export function writeBitsBE(buf, startByteOffset, startBitOffset, lengthInBit, value) {
+    // console.log({ buf, startByteOffset, startBitOffset, lengthInBit, value });
+    startByteOffset += Math.floor(startBitOffset / 8);
+    startBitOffset %= 8;
+    const endByteOffset = Math.ceil((startByteOffset * 8 + startBitOffset + lengthInBit) / 8);
+    const endBitOffset = (startBitOffset + lengthInBit) % 8 || 8;
+    // console.log({ startByteOffset, startBitOffset, endByteOffset, endBitOffset });
+
+    for (let i = startByteOffset; i < endByteOffset; i++) {
+        const isFirstByte = (i === startByteOffset);
+        const isLastByte = (i === endByteOffset - 1);
+
+        const startBitOffsetInThisByte = isFirstByte ? startBitOffset : 0;
+        const endBitOffsetInThisByte = isLastByte ? endBitOffset : 8;
+
+        const startBitMask = (0xFF >> startBitOffsetInThisByte);
+        const endBitMask = (0xFF >> endBitOffsetInThisByte);
+
+        // console.log({startBitMask, endBitMask })
+
+        const byte = buf.readUInt8(i);
+        // console.log({ byte });
+        const clearedByte = byte & ~(startBitMask ^ endBitMask);
+        // console.log({ clearedByte, mask: ~(startBitMask ^ endBitMask) });
+
+        const j = 8 - startBitOffsetInThisByte;
+        const k = endByteOffset - 1 - i;    // if last byte, it will be 0; if second last byte, it will be 1...
+        // console.log({ j, k, xx: (k - 1) * 8 + endBitOffset, endBitOffsetInThisByte });
+
+        let dataToWrite = value;
+        dataToWrite >>= isLastByte ? 0 : ((k - 1) * 8 + endBitOffset); // If second last byte and end bit offset is 1, it should be 1.
+        dataToWrite <<= (8 - endBitOffsetInThisByte);
+        dataToWrite &= 0xFF;
+        // console.log({ byteToShiftForNeededData, value, dataToWrite });
+
+        const resultantByte = clearedByte | dataToWrite;
+        // console.log({ resultantByte });
+
+        buf.writeUInt8(resultantByte, i);
+
+        // console.log('----');
+    }
 }
 
 function parseFormat(format) {
@@ -228,9 +285,10 @@ export function bin2obj(buf, recordLength, format, keepBase64, isBigEndian = fal
     return records;
 }
 
-export function obj2bin(arr, recordLength, format) {
+export function obj2bin(arr, recordLength, format, isBigEndian = false) {
     const parsedFormat = parseFormat(format);
     let bufs = [];
+    const writeBitsFn = isBigEndian ? writeBitsBE : writeBitsLE;
 
     for (let i = 0; i < arr.length; i++) {
         const record = arr[i];
@@ -279,7 +337,7 @@ export function obj2bin(arr, recordLength, format) {
                     const correctedStartByte = Math.trunc((startByte * 8 + (startBit + i * lengthInBit)) / 8);
                     const correctedStartBit = (startBit + i * lengthInBit) % 8;
 
-                    writeBitsLE(
+                    writeBitsFn(
                         recordBuf,
                         correctedStartByte,
                         correctedStartBit,
