@@ -141,10 +141,10 @@ function parseFormat(format) {
 
         let key = data.key;
         if (key === undefined) {
-            throw new Error(```key`` is missing. (format with index = ${i})`);
+            throw new Error(`\`key\` is missing. (format with index = ${i})`);
         }
         if (usedKeys.has(key)) {
-            throw new Error(```key`` value is defined before. (format with index = ${i})`)
+            throw new Error(`\`key\` value is defined before. (format with index = ${i})`)
         }
         usedKeys.add(key);
 
@@ -321,7 +321,7 @@ export function obj2bin(arr, recordLength, format, isBigEndian = false) {
                 if (subFormat) {
                     if (data[i] !== undefined) {
                         const resultLength = (lengthInBit / 8);
-                        const subRecordBuf = obj2bin([data[i]], resultLength, subFormat);
+                        const subRecordBuf = obj2bin([data[i]], resultLength, subFormat, isBigEndian);
                         subRecordBuf.copy(recordBuf, (startByte + resultLength * i));
                     }
                 } else if (isString) {
