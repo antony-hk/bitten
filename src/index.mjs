@@ -12,7 +12,7 @@ export function readBitsLE(buf, startByteOffset, startBitOffset, lengthInBit, si
     const firstByte = buf.readUInt8(startByteOffset);
     const firstByteBitLength = 8 - startBitOffset;
     const firstByteLengthMask = (Math.pow(2, Math.min(firstByteBitLength, lengthInBit)) - 1) << startBitOffset;
-    const firstByteDataMask = ((Math.pow(2, 8) - 1) - (Math.pow(2, startBitOffset) - 1)) & firstByteLengthMask;    // LE (PS4, PC)
+    const firstByteDataMask = ((Math.pow(2, 8) - 1) - (Math.pow(2, startBitOffset) - 1)) & firstByteLengthMask;
     const firstByteNeededData = (firstByte & firstByteDataMask) >> startBitOffset;
 
     let ret = firstByteNeededData;
@@ -25,7 +25,7 @@ export function readBitsLE(buf, startByteOffset, startBitOffset, lengthInBit, si
             currentByteOffset += 1;
 
             let byteData = readBitsLE(buf, startByteOffset + currentByteOffset, 0, Math.min(remainingBitLength, 8));
-            ret = ret + (byteData << currentBitLength);    // LE (PS4, PC)
+            ret = ret + (byteData << currentBitLength);
 
             const delta = Math.min(remainingBitLength, 8);
             remainingBitLength -= delta;
@@ -54,7 +54,7 @@ export function writeBitsLE(buf, startByteOffset, startBit, lengthInBit, value) 
     if (firstByteBitLength < lengthInBit) {
         const remainingBitLength = lengthInBit - firstByteBitLength;
         const remainingData = value >> firstByteBitLength;
-        writeBitsLE(buf, startByteOffset + 1, 0, remainingBitLength, remainingData);    // Do it recursively
+        writeBitsLE(buf, startByteOffset + 1, 0, remainingBitLength, remainingData);
     }
 }
 
@@ -86,12 +86,10 @@ export function readBitsBE(buf, startByteOffset, startBitOffset, lengthInBit, si
 }
 
 export function writeBitsBE(buf, startByteOffset, startBitOffset, lengthInBit, value) {
-    // console.log({ buf, startByteOffset, startBitOffset, lengthInBit, value });
     startByteOffset += Math.floor(startBitOffset / 8);
     startBitOffset %= 8;
     const endByteOffset = Math.ceil((startByteOffset * 8 + startBitOffset + lengthInBit) / 8);
     const endBitOffset = (startBitOffset + lengthInBit) % 8 || 8;
-    // console.log({ startByteOffset, startBitOffset, endByteOffset, endBitOffset });
 
     for (let i = startByteOffset; i < endByteOffset; i++) {
         const isFirstByte = (i === startByteOffset);
@@ -103,29 +101,20 @@ export function writeBitsBE(buf, startByteOffset, startBitOffset, lengthInBit, v
         const startBitMask = (0xFF >> startBitOffsetInThisByte);
         const endBitMask = (0xFF >> endBitOffsetInThisByte);
 
-        // console.log({startBitMask, endBitMask })
-
         const byte = buf.readUInt8(i);
-        // console.log({ byte });
         const clearedByte = byte & ~(startBitMask ^ endBitMask);
-        // console.log({ clearedByte, mask: ~(startBitMask ^ endBitMask) });
 
         const j = 8 - startBitOffsetInThisByte;
-        const k = endByteOffset - 1 - i;    // if last byte, it will be 0; if second last byte, it will be 1...
-        // console.log({ j, k, xx: (k - 1) * 8 + endBitOffset, endBitOffsetInThisByte });
+        const k = endByteOffset - 1 - i;
 
         let dataToWrite = value;
-        dataToWrite >>= isLastByte ? 0 : ((k - 1) * 8 + endBitOffset); // If second last byte and end bit offset is 1, it should be 1.
+        dataToWrite >>= isLastByte ? 0 : ((k - 1) * 8 + endBitOffset);
         dataToWrite <<= (8 - endBitOffsetInThisByte);
         dataToWrite &= 0xFF;
-        // console.log({ byteToShiftForNeededData, value, dataToWrite });
 
         const resultantByte = clearedByte | dataToWrite;
-        // console.log({ resultantByte });
 
         buf.writeUInt8(resultantByte, i);
-
-        // console.log('----');
     }
 }
 
@@ -211,7 +200,7 @@ function parseFormat(format) {
     return parsedFormat;
 }
 
-export function bin2obj(buf, recordLength, format, keepBase64, isBigEndian = false) {
+export function toJS(buf, recordLength, format, keepBase64, isBigEndian = false) {
     const parsedFormat = parseFormat(format);
     const numRecords = Math.floor(buf.length / recordLength);
     let records = [];
@@ -249,7 +238,7 @@ export function bin2obj(buf, recordLength, format, keepBase64, isBigEndian = fal
                     const resultLength = (lengthInBit / 8);
                     const resultBuf = recordBuf.slice(startByte + resultLength * i, (startByte + resultLength * (i+1)));
 
-                    result = bin2obj(resultBuf, resultLength, subFormat, keepBase64, isBigEndian)[0];
+                    result = toJS(resultBuf, resultLength, subFormat, keepBase64, isBigEndian)[0];
                 } else if (isString) {
                     result = readString(
                         recordBuf,
@@ -285,7 +274,7 @@ export function bin2obj(buf, recordLength, format, keepBase64, isBigEndian = fal
     return records;
 }
 
-export function obj2bin(arr, recordLength, format, isBigEndian = false) {
+export function fromJS(arr, recordLength, format, isBigEndian = false) {
     const parsedFormat = parseFormat(format);
     let bufs = [];
     const writeBitsFn = isBigEndian ? writeBitsBE : writeBitsLE;
@@ -321,7 +310,7 @@ export function obj2bin(arr, recordLength, format, isBigEndian = false) {
                 if (subFormat) {
                     if (data[i] !== undefined) {
                         const resultLength = (lengthInBit / 8);
-                        const subRecordBuf = obj2bin([data[i]], resultLength, subFormat, isBigEndian);
+                        const subRecordBuf = fromJS([data[i]], resultLength, subFormat, isBigEndian);
                         subRecordBuf.copy(recordBuf, (startByte + resultLength * i));
                     }
                 } else if (isString) {
