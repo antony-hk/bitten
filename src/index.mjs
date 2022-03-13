@@ -1,3 +1,5 @@
+import { Buffer } from 'buffer';
+
 export function readString(buf, offset, length) {
     return buf.slice(offset, offset + length).toString('utf8').replace(/\0/g, '');
 }
