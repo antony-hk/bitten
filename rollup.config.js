@@ -7,7 +7,7 @@ module.exports = {
     output: {
         file: 'dist/index.js',
         format: 'umd',
-        name: 'neight',
+        name: 'bitten',
         sourcemap: true
     },
     plugins: [
@@ -15,6 +15,7 @@ module.exports = {
             jsnext: true,
             main: true,
             browser: true,
+            preferBuiltins: false,
         }),
         commonjs(),
         buble({
