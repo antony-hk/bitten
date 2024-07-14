@@ -2,9 +2,15 @@
   "name": "bitten",
   "version": "0.0.0",
   "description": "",
-  "main": "dist/index.js",
+  "type": "module",
+  "main": "dist/bitten.js",
+  "module": "dist/bitten.mjs",
+  "exports": {
+    "import": "./dist/bitten.mjs",
+    "require": "./dist/bitten.js"
+  },
   "scripts": {
-    "build": "rollup -c",
+    "build": "node build.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -18,13 +24,7 @@
   },
   "homepage": "https://github.com/antonytse/bitten#readme",
   "devDependencies": {
-    "rollup": "^1.13.0",
-    "rollup-plugin-buble": "^0.19.6",
-    "rollup-plugin-commonjs": "^10.0.0",
-    "rollup-plugin-node-builtins": "^2.1.2",
-    "rollup-plugin-node-resolve": "^5.0.1"
-  },
-  "dependencies": {
-    "buffer": "^6.0.3"
+    "buffer": "^6.0.3",
+    "esbuild": "^0.23.0"
   }
 }
