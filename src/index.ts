@@ -2,33 +2,48 @@
  * Bitten - A JavaScript/TypeScript library for parsing and constructing data in binary format
  */
 import { Buffer } from "buffer";
+import type { Simplify } from 'type-fest';
 
 /**
- * 定義二進制數據格式的基本單元
+ * 面向位元組的字段格式定義（用於 string 和 arraybuffer 類型）
  */
-export interface FormatItem {
+export interface ByteAlignedFormatItem {
   /** 該字段在記錄中的起始位元組位置 */
-  startByte: number;
+  offset: number;
+  /** 該字段的位元組長度（必須指定） */
+  length: number;
+  /** 當該字段是數組時，數組的長度。0表示單個元素作為數組處理 */
+  arrayLength?: number;
+  /** 字段的數據類型 - 只能使用字節對齊類型 */
+  type: 'string' | 'arraybuffer';
+  /** 嵌套的格式定義，用於複合類型 */
+  subFormat?: ObjectFormat;
+  /** 自定義的讀取轉換函數，將讀取的原始值轉換為期望的類型 */
+  readTransform?: (input: any) => any;
+  /** 自定義的寫入轉換函數，將JS值轉換為適合寫入二進制的格式 */
+  writeTransform?: (input: any) => any;
+  
+  /** 這些屬性不允許用於字節對齊類型 */
+  bitOffset?: never;
+  bitLength?: never;
+}
+
+/**
+ * 面向位元的字段格式定義（用於 boolean、int、uint 和 bigint 類型）
+ */
+export interface BitLevelFormatItem {
+  /** 該字段在記錄中的起始位元組位置 */
+  offset: number;
   /** 該字段在起始位元組中的起始位元位置，默認為0 */
-  startBit?: number;
-  /** 該字段的總位元長度 */
+  bitOffset?: number;
+  /** 該字段的總位元長度，與 length 只能選其一。必須提供 bitLength 或 length 中的一個 */
   bitLength?: number;
-  /** 該字段的位元組長度，與bitLength不能同時設置 */
+  /** 該字段的位元組長度，與 bitLength 只能選其一。必須提供 length 或 bitLength 中的一個 */
   length?: number;
   /** 當該字段是數組時，數組的長度。0表示單個元素作為數組處理 */
   arrayLength?: number;
-  /** 
-   * 字段的數據類型
-   * - 'boolean': 布爾值，佔用1位元
-   * - 'uint': 無符號整數
-   * - 'int': 有符號整數
-   * - 'string': 字符串
-   * - 'bigint': 大整數，支持超過 JavaScript Number 類型範圍的整數
-   * - 'arraybuffer': 二進制數據緩衝區
-   */
-  type: 'boolean' | 'uint' | 'int' | 'string' | 'bigint' | 'arraybuffer';
-  /** 字符串是否以空字符開頭 */
-  isStringWithInitialNull?: boolean;
+  /** 字段的數據類型 - 只能使用位元級類型 */
+  type: 'boolean' | 'uint' | 'int' | 'bigint';
   /** 嵌套的格式定義，用於複合類型 */
   subFormat?: ObjectFormat;
   /** 自定義的讀取轉換函數，將讀取的原始值轉換為期望的類型 */
@@ -36,6 +51,11 @@ export interface FormatItem {
   /** 自定義的寫入轉換函數，將JS值轉換為適合寫入二進制的格式 */
   writeTransform?: (input: any) => any;
 }
+
+/**
+ * 定義二進制數據格式的基本單元，根據數據類型的不同，有不同的屬性要求
+ */
+export type FormatItem = ByteAlignedFormatItem | BitLevelFormatItem;
 
 /**
  * 格式定義，以對象形式組織數據字段
@@ -46,19 +66,23 @@ export interface ObjectFormat {
 }
 
 /**
+ * 寬鬆版本的ObjectFormat，用於接受非const類型的格式定義
+ */
+// export type LooseObjectFormat = Record<string, any>;
+
+/**
  * 解析後的格式項定義，所有可選字段都會被賦予默認值
  */
 interface ParsedFormatItem {
   key: string;
-  startByte: number;
-  startBit: number;
-  bitLength: number;
+  offset: number;
+  bitOffset: number;  // 原 startBit
+  bitLength: number;  // 這裡必須是 number，不能是 undefined
   arrayLength: number | undefined;
   type: 'boolean' | 'uint' | 'int' | 'string' | 'bigint' | 'arraybuffer';
-  isStringWithInitialNull: boolean | undefined;
   subFormat: ObjectFormat | undefined;
-  readTransform: (input: any) => any;
-  writeTransform: (input: any) => any;
+  readTransform?: (input: any) => any;
+  writeTransform?: (input: any) => any;
 }
 
 /**
@@ -127,7 +151,7 @@ export type FormatFieldType<F> =
   F extends { type: 'int' | 'uint' } ? number :
   F extends { type: 'bigint' } ? bigint :
   F extends { type: 'arraybuffer' } ? ArrayBuffer :
-  number;
+  unknown;
 
 /**
  * 呢個類型用嚟處理帶有子格式嘅字段類型推導
@@ -144,7 +168,7 @@ export type FormatFieldType<F> =
  * 
  * 呢個類型主要處理複雜嘅嵌套結構，令到最終輸出嘅 JavaScript 對象類型同格式定義結構一致
  */
-export type FormatSubType<F, O extends ObjectFormat = ObjectFormat> = 
+export type FormatSubType<F> = 
   // 如果有子格式同時有數組長度，推導為子格式物件嘅數組
   F extends { subFormat: infer S, arrayLength: number } ?
     S extends ObjectFormat ? Array<InferObjectFormat<S>> : never :
@@ -169,19 +193,19 @@ export type FormatSubType<F, O extends ObjectFormat = ObjectFormat> =
  * 呢個類型令到庫用戶可以獲得完整嘅類型安全性，編譯時就能檢查到類型錯誤，
  * 同時喺代碼編輯器中提供自動完成功能，大大提高開發效率
  */
-export type InferObjectFormat<T extends ObjectFormat> = {
+export type InferObjectFormat<T extends ObjectFormat> = Simplify<{
   // 遍歷 T 中嘅所有鍵，為每個鍵推導對應嘅類型
-  [K in keyof T]: 
-                 // 如果字段既有子格式又有數組長度，推導為子格式物件嘅數組
-                 T[K] extends { subFormat: infer S, arrayLength: number } ?
-                   S extends ObjectFormat ? Array<InferObjectFormat<S>> : never :
-                 // 如果字段只有子格式，推導為單個子格式物件
-                 T[K] extends { subFormat: infer S } ?
-                   S extends ObjectFormat ? InferObjectFormat<S> : never :
-                 // 其他情況用 FormatFieldType 推導基本類型
-                 FormatFieldType<T[K]>;
+  -readonly [K in keyof T]: 
+               // 如果字段既有子格式又有數組長度，推導為子格式物件嘅數組
+               T[K] extends { subFormat: infer S, arrayLength: number } ?
+                 S extends ObjectFormat ? Array<InferObjectFormat<S>> : never :
+               // 如果字段只有子格式，推導為單個子格式物件
+               T[K] extends { subFormat: infer S } ?
+                 S extends ObjectFormat ? InferObjectFormat<S> : never :
+               // 其他情況用 FormatFieldType 推導基本類型
+               FormatFieldType<T[K]>;
   // 附加一個可選的 base64 字段，用於保存原始二進制數據
-} & { base64?: string; };
+} & { base64?: string; }>;
 
 /**
  * 從格式定義推斷生成的JS對象類型
@@ -219,40 +243,40 @@ export function writeString(buf: Buffer, offset: number, length: number, string:
 /**
  * 按小端序從緩衝區的指定位元位置讀取值
  * @param buf 數據緩衝區
- * @param startByteOffset 起始位元組位置
- * @param startBitOffset 起始位元位置
+ * @param byteOffset 起始位元組位置
+ * @param bitOffset 起始位元位置
  * @param bitLength 要讀取的位元數
  * @param signed 是否為有符號數值
  * @returns 讀取的數值
  */
 export function readBitsLE(
   buf: Buffer, 
-  startByteOffset: number, 
-  startBitOffset: number, 
+  byteOffset: number, 
+  bitOffset: number, 
   bitLength: number, 
-  signed: boolean = false
+  signed = false
 ): number {
     // 第一步：讀取第一個位元組的值
     // 從緩衝區指定位置讀取一個無符號8位整數（一個位元組）
-    const firstByte = buf.readUInt8(startByteOffset);
+    const firstByte = buf.readUInt8(byteOffset);
     
     // 第二步：計算第一個位元組中可用的位元數量（從起始位到位元組尾）
     // 一個位元組有8位，減去起始位偏移，得到可用位元數
-    const firstByteBitLength = 8 - startBitOffset;
+    const firstByteBitLength = 8 - bitOffset;
     
     // 第三步：建立掩碼來提取第一個位元組中我們需要嘅位元
     // 先計算掩碼嘅大小：(2^min(可用位元數, 需要讀取嘅位元數) - 1) << 起始位置
     // 呢個掩碼會將需要讀取嘅位設為1，其他位設為0
-    const firstByteLengthMask = (Math.pow(2, Math.min(firstByteBitLength, bitLength)) - 1) << startBitOffset;
+    const firstByteLengthMask = (2 ** Math.min(firstByteBitLength, bitLength) - 1) << bitOffset;
     
     // 第四步：結合位元組中的有效範圍同我們需要嘅部分
     // ((2^8 - 1) - (2^起始位置 - 1)) 創建從起始位置到位元組尾嘅掩碼
     // 與前面嘅掩碼進行與操作，確保只讀取需要嘅位
-    const firstByteDataMask = ((Math.pow(2, 8) - 1) - (Math.pow(2, startBitOffset) - 1)) & firstByteLengthMask;
+    const firstByteDataMask = ((2 ** 8 - 1) - (2 ** bitOffset - 1)) & firstByteLengthMask;
     
     // 第五步：提取數據並右移到正確位置（消除起始位偏移）
     // 將位元組與掩碼進行與操作，提取需要嘅位，然後右移到正確位置
-    const firstByteNeededData = (firstByte & firstByteDataMask) >> startBitOffset;
+    const firstByteNeededData = (firstByte & firstByteDataMask) >> bitOffset;
 
     // 第六步：初始化返回值為第一個位元組嘅數據
     let ret = firstByteNeededData;
@@ -267,10 +291,10 @@ export function readBitsLE(
         while (remainingBitLength > 0) {
             // 移動到下一個位元組
             currentByteOffset += 1;
-            
-            // 從下一個位元組讀取數據（遞歸調用，但從位元組嘅起始位開始，即 startBitOffset=0）
+
+            // 從下一個位元組讀取數據（遞歸調用，但從位元組嘅起始位開始，即 bitOffset=0）
             // 呢度使用遞歸調用自身，但簡化了參數，因為後續位元組都係從第0位開始讀取
-            let byteData = readBitsLE(buf, startByteOffset + currentByteOffset, 0, Math.min(remainingBitLength, 8));
+            const byteData = readBitsLE(buf, byteOffset + currentByteOffset, 0, Math.min(remainingBitLength, 8));
             
             // 將讀取嘅數據左移已讀取嘅位元數，然後加到結果中
             // 小端序：低位元組放低位，高位元組放高位，所以後讀嘅位元組需要左移
@@ -288,7 +312,7 @@ export function readBitsLE(
     if (signed) {
         // 計算符號位嘅位置（最高位）
         // 對於有符號整數，最高位表示符號（0為正，1為負）
-        let cutoff = 1 << (bitLength - 1);
+        const cutoff = 1 << (bitLength - 1);
         
         // 檢查符號位是否為1（負數）
         if (ret > cutoff) {
@@ -305,15 +329,15 @@ export function readBitsLE(
 /**
  * 將值按小端序寫入緩衝區指定的位元位置
  * @param buf 數據緩衝區
- * @param startByteOffset 起始位元組位置
- * @param startBit 起始位元位置
+ * @param byteOffset 起始位元組位置
+ * @param bitOffset 起始位元位置
  * @param bitLength 要寫入的位元數
  * @param value 要寫入的數值 (number 或 bigint)
  */
 export function writeBitsLE(
   buf: Buffer, 
-  startByteOffset: number, 
-  startBit: number, 
+  byteOffset: number, 
+  bitOffset: number, 
   bitLength: number, 
   value: number | bigint
 ): void {
@@ -322,29 +346,29 @@ export function writeBitsLE(
     const numericValue = isValueBigInt ? Number(value) : value as number;
     
     // 第一步：創建掩碼，用於清除第一個位元組中需要寫入嘅位
-    // ((2^bitLength - 1) << startBit) 創建一個掩碼，在起始位置開始，長度為 bitLength 的位置設為1
+    // ((2^bitLength - 1) << bitOffset) 創建一個掩碼，在起始位置開始，長度為 bitLength 的位置設為1
     // 然後與 0xFF 進行與操作，確保掩碼只對一個位元組有效
     // 呢個掩碼會將需要寫入嘅位設為1，其他位設為0
-    const dataMask = ((Math.pow(2, bitLength) - 1) << startBit) & 0xFF;
+    const dataMask = ((2 ** bitLength - 1) << bitOffset) & 0xFF;
     
     // 第二步：讀取當前位元組，並清除需要寫入的位置
-    // (buf[startByteOffset] | dataMask) ^ dataMask 操作會清除掩碼位置嘅位，保留其他位不變
+    // (buf[byteOffset] | dataMask) ^ dataMask 操作會清除掩碼位置嘅位，保留其他位不變
     // 呢個技巧先將掩碼位置設為1，然後再異或掩碼，達到清除特定位嘅效果
-    const firstByteClearedOldData = (buf.readUInt8(startByteOffset) | dataMask) ^ dataMask;
+    const firstByteClearedOldData = (buf.readUInt8(byteOffset) | dataMask) ^ dataMask;
     
     // 第三步：準備要寫入嘅數據
-    // (value << startBit) 將數值左移到正確嘅起始位位置
+    // (value << bitOffset) 將數值左移到正確嘅起始位位置
     // 然後與掩碼進行與運算，確保只有需要寫入嘅位會被保留
     // 呢個操作確保數值只會影響到我們想要寫入嘅位
-    const firstByteNewData = ((numericValue << startBit) & dataMask);
+    const firstByteNewData = ((numericValue << bitOffset) & dataMask);
     
     // 第四步：合併現有數據與新數據，並寫入到位元組
     // 使用或運算將清除後嘅原始數據同新數據合併，然後寫回緩衝區
-    buf.writeUInt8((firstByteClearedOldData | firstByteNewData), startByteOffset);
+    buf.writeUInt8((firstByteClearedOldData | firstByteNewData), byteOffset);
 
     // 第五步：計算第一個位元組可以容納嘅位元數量
     // 一個位元組有8位，減去起始位偏移，得到可用位元數
-    const firstByteBitLength = 8 - startBit;
+    const firstByteBitLength = 8 - bitOffset;
 
     // 第六步：如果要寫入嘅位元數超過第一個位元組可容納嘅位元數，需要繼續寫入到後續位元組
     if (firstByteBitLength < bitLength) {
@@ -361,42 +385,42 @@ export function writeBitsLE(
         // 遞歸調用自身，寫入剩餘嘅位到下一個位元組
         // 注意起始位為0，因為從下一個位元組嘅頭部開始寫入
         // 呢個遞歸調用處理跨位元組嘅寫入操作
-        writeBitsLE(buf, startByteOffset + 1, 0, remainingBitLength, remainingData);
+        writeBitsLE(buf, byteOffset + 1, 0, remainingBitLength, remainingData);
     }
 }
 
 /**
  * 按大端序從緩衝區的指定位元位置讀取值
  * @param buf 數據緩衝區
- * @param startByteOffset 起始位元組位置
- * @param startBitOffset 起始位元位置
+ * @param byteOffset 起始位元組位置
+ * @param bitOffset 起始位元位置
  * @param bitLength 要讀取的位元數
  * @param signed 是否為有符號數值
  * @returns 讀取的數值
  */
 export function readBitsBE(
   buf: Buffer, 
-  startByteOffset: number, 
-  startBitOffset: number, 
+  byteOffset: number, 
+  bitOffset: number, 
   bitLength: number, 
-  signed: boolean = false
+  signed = false
 ): number {
     // 第一步：調整起始位元組位置，考慮起始位偏移可能跨位元組嘅情況
-    startByteOffset += Math.floor(startBitOffset / 8);
-    startBitOffset %= 8; // 調整起始位偏移到0-7嘅範圍
+    byteOffset += Math.floor(bitOffset / 8);
+    bitOffset %= 8; // 調整起始位偏移到0-7嘅範圍
     
     // 第二步：計算結束位元組位置
-    const endByteOffset = Math.ceil((startByteOffset * 8 + startBitOffset + bitLength) / 8);
+    const endByteOffset = Math.ceil((byteOffset * 8 + bitOffset + bitLength) / 8);
     
     // 第三步：計算結束位偏移（在最後一個位元組中的位置）
-    const endBitOffset = (startBitOffset + bitLength) % 8 || 8;
+    const endBitOffset = (bitOffset + bitLength) % 8 || 8;
 
     // 第四步：初始化返回值
     let ret = 0;
 
     // 第五步：按大端序讀取每個位元組（從高位到低位）
-    for (let i = startByteOffset; i < endByteOffset; i++) {
-        const isFirstByte = (i === startByteOffset);
+    for (let i = byteOffset; i < endByteOffset; i++) {
+        const isFirstByte = (i === byteOffset);
         const isLastByte = (i === endByteOffset - 1);
         
         // 第六步：左移結果以容納新讀取嘅8位
@@ -407,7 +431,7 @@ export function readBitsBE(
 
         // 第八步：如果是第一個位元組，需要清除起始位之前嘅位
         if (isFirstByte) {
-            const mask = (0xFF >> startBitOffset);
+            const mask = (0xFF >> bitOffset);
             ret &= mask;
         }
 
@@ -417,22 +441,34 @@ export function readBitsBE(
         }
     }
 
-    // 第十步：返回讀取嘅數值（大端序不需要額外處理符號位，因為已經正確讀取）
+    // 第十步：處理符號位
+    if (signed) {
+        // 計算符號位嘅位置（最高位）
+        const cutoff = 1 << (bitLength - 1);
+        
+        // 檢查符號位是否為1（負數）
+        if (ret > cutoff) {
+            // 如果是負數，進行二補數轉換：減去2^lengthInBit
+            ret -= (1 << bitLength);
+        }
+    }
+
+    // 返回讀取嘅數值
     return ret;
 }
 
 /**
  * 將值按大端序寫入緩衝區指定的位元位置
  * @param buf 數據緩衝區
- * @param startByteOffset 起始位元組位置
- * @param startBitOffset 起始位元位置
+ * @param byteOffset 起始位元組位置
+ * @param bitOffset 起始位元位置
  * @param bitLength 要寫入的位元數
  * @param value 要寫入的數值 (number 或 bigint)
  */
 export function writeBitsBE(
   buf: Buffer, 
-  startByteOffset: number, 
-  startBitOffset: number, 
+  byteOffset: number, 
+  bitOffset: number, 
   bitLength: number, 
   value: number | bigint
 ): void {
@@ -440,22 +476,22 @@ export function writeBitsBE(
     const numericValue = typeof value === 'bigint' ? Number(value) : value as number;
     
     // 第一步：調整起始位元組位置，考慮起始位偏移可能跨位元組嘅情況
-    startByteOffset += Math.floor(startBitOffset / 8);
-    startBitOffset %= 8; // 調整起始位偏移到0-7嘅範圍
+    byteOffset += Math.floor(bitOffset / 8);
+    bitOffset %= 8; // 調整起始位偏移到0-7嘅範圍
     
     // 第二步：計算結束位元組位置
-    const endByteOffset = Math.ceil((startByteOffset * 8 + startBitOffset + bitLength) / 8);
+    const endByteOffset = Math.ceil((byteOffset * 8 + bitOffset + bitLength) / 8);
     
     // 第三步：計算結束位偏移（在最後一個位元組中的位置）
-    const endBitOffset = (startBitOffset + bitLength) % 8 || 8;
+    const endBitOffset = (bitOffset + bitLength) % 8 || 8;
 
     // 第四步：按大端序處理每個位元組（從高位到低位）
-    for (let i = startByteOffset; i < endByteOffset; i++) {
-        const isFirstByte = (i === startByteOffset);
+    for (let i = byteOffset; i < endByteOffset; i++) {
+        const isFirstByte = (i === byteOffset);
         const isLastByte = (i === endByteOffset - 1);
 
         // 第五步：計算當前位元組內嘅起始位元位置
-        const startBitOffsetInThisByte = isFirstByte ? startBitOffset : 0;
+        const startBitOffsetInThisByte = isFirstByte ? bitOffset : 0;
         
         // 第六步：計算當前位元組內嘅結束位元位置
         const endBitOffsetInThisByte = isLastByte ? endBitOffset : 8;
@@ -522,15 +558,15 @@ function parseFormat(format: ObjectFormat): ParsedFormat {
         }
         usedKeys.add(fieldName);
         
-        // 第二步：驗證 startByte 必須為數字
-        // startByte 係必須嘅參數，用於確定字段在二進制數據中嘅起始位置
-        if (typeof fieldData.startByte !== 'number') {
-            throw new Error(`Incorrect type of \`startByte\` for field '${fieldName}'.`);
+        // 第二步：驗證 offset 必須為數字
+        // offset 係必須嘅參數，用於確定字段在二進制數據中嘅起始位置
+        if (typeof fieldData.offset !== 'number') {
+            throw new Error(`Incorrect type of \`offset\` for field '${fieldName}'.`);
         }
         
         // 第三步：處理子格式（如果有）
         // 子格式用於表示嵌套對象，需要確保其為有效嘅對象格式
-        let subFormat = fieldData.subFormat;
+        const subFormat = fieldData.subFormat;
         if (subFormat !== undefined) {
             // 檢查子格式是否為有效的對象格式
             if (typeof subFormat !== 'object') {
@@ -540,151 +576,96 @@ function parseFormat(format: ObjectFormat): ParsedFormat {
         
         // 第四步：處理位元相關參數
         // 獲取起始位元組位置
-        let startByte = fieldData.startByte;
+        let offset = fieldData.offset;
         // 獲取起始位元位置，默認為0（位元組嘅第一位）
-        let startBit = fieldData.startBit || 0; 
+        // 注意：我們現在使用 bitOffset 代替 startBit
+        let bitOffset = (fieldData as BitLevelFormatItem).bitOffset || 0; 
         
-        // 第五步：確保 type 屬性存在
-        // type 屬性指定了字段嘅數據類型，係必須嘅
-        if (!fieldData.type) {
-            throw new Error(`Field '${fieldName}' missing required 'type' property.`);
+        // 第五步：處理 type 屬性
+        // 如果有 subFormat，type 可以省略
+        // 如果沒有 subFormat 且沒有指定 type，默認為 'int'
+        let type = fieldData.type;
+        if (!type) {
+            if (subFormat) {
+                // 有子格式時，type 可以省略
+                type = 'int'; // 給一個默認值，但實際上不會被使用
+            } else {
+                // 沒有子格式時，默認 type 為 'int'
+                type = 'int';
+            }
         }
         
         // 第六步：檢查布爾類型的特殊限制 - 必須為1位元
         // 布爾值只需要1個位元來表示（0或1），所以長度必須為1
-        if (fieldData.type === 'boolean' && (fieldData.bitLength !== undefined && fieldData.bitLength !== 1)) {
+        if (type === 'boolean' && (fieldData as BitLevelFormatItem).bitLength !== undefined && (fieldData as BitLevelFormatItem).bitLength !== 1) {
             throw new Error(`Boolean field '${fieldName}' must have bitLength = 1.`);
         }
         
-        // 第七步：檢查字符串類型嘅限制 - 不能設置 startBit
-        // 字符串必須從位元組邊界開始，不能從位元組中間開始
-        if ((fieldData.type === 'string' || fieldData.type === 'arraybuffer') && startBit !== 0) {
-            throw new Error(`\`startBit\` is defined when the field is a ${fieldData.type}. (field: ${fieldName})`);
+        // 第七步：檢查字符串和ArrayBuffer類型的限制 - 必須使用ByteAlignedFormatItem
+        // 字符串和ArrayBuffer必須從位元組邊界開始，不能從位元組中間開始
+        if ((type === 'string' || type === 'arraybuffer')) {
+            // 檢查是否有人嘗試在字節對齊類型上使用位元級屬性
+            const item = fieldData as ByteAlignedFormatItem;
+            if ('bitOffset' in fieldData || 'bitLength' in fieldData) {
+                throw new Error(`\`bitOffset\` or \`bitLength\` cannot be used with ${type} type. (field: ${fieldName})`);
+            }
+            // 檢查是否有設置length
+            if (item.length === undefined) {
+                throw new Error(`\`length\` must be defined for ${type} type. (field: ${fieldName})`);
+            }
         }
         
-        // 第八步：處理位元偏移，調整 startByte 同 startBit
-        // 如果 startBit 大於等於8，需要調整 startByte 和 startBit
-        if (startBit !== 0) {
-            if (typeof startBit !== 'number') {
-                throw new Error(`Incorrect type of \`startBit\` for field '${fieldName}'.`);
+        // 第八步：處理位元偏移，調整 offset 同 bitOffset
+        // 如果 bitOffset 大於等於8，需要調整 offset 和 bitOffset
+        if (bitOffset !== 0) {
+            if (typeof bitOffset !== 'number') {
+                throw new Error(`Incorrect type of \`bitOffset\` for field '${fieldName}'.`);
             }
             
             // 將過大嘅位元偏移轉換為位元組偏移
-            // 例如：startBit=9 會轉換為 startByte+1, startBit=1
-            startByte += Math.floor(startBit / 8);
-            startBit = startBit % 8; // 保留剩餘嘅位元偏移（0-7）
+            // 例如：bitOffset=9 會轉換為 offset+1, bitOffset=1
+            offset += Math.floor(bitOffset / 8);
+            bitOffset = bitOffset % 8; // 保留剩餘嘅位元偏移（0-7）
         }
         
         // 第九步：處理長度相關參數 - length 同 bitLength 不能同時定義
-        let bitLength: number;
-        if (fieldData.length !== undefined && fieldData.bitLength !== undefined) {
-            throw new Error(`\`length\` and \`bitLength\` defined at the same time for field '${fieldName}'.`);
-        } else if (fieldData.length !== undefined) {
+        let bitLength = 0; // 初始化為數字，避免類型問題
+        if (fieldData.length !== undefined) {
             // 如果定義了位元組長度，轉換為位元長度
-            // 1位元組 = 8位元
             bitLength = fieldData.length * 8;
-        } else if (fieldData.bitLength !== undefined) {
+        } else if ((fieldData as BitLevelFormatItem).bitLength !== undefined) {
             // 如果定義了位元長度，直接使用
-            bitLength = fieldData.bitLength;
+            const definedBitLength = (fieldData as BitLevelFormatItem).bitLength;
+            if (typeof definedBitLength !== 'number' || isNaN(definedBitLength)) {
+                throw new Error(`Invalid bitLength for field '${fieldName}': must be a number.`);
+            }
+            bitLength = definedBitLength;
         } else {
             // 兩者都未定義，報錯
             // 必須指定字段嘅長度，否則無法確定讀取/寫入多少數據
             throw new Error(`Neither \`length\` nor \`bitLength\` defined for field '${fieldName}'.`);
         }
         
+        // 確保 bitLength 一定有值，不會是 undefined
+        if (typeof bitLength !== 'number' || isNaN(bitLength)) {
+            throw new Error(`Failed to determine valid bit length for field '${fieldName}'.`);
+        }
+        
         // 第十步：設置其他可選參數嘅默認值
         const arrayLength = fieldData.arrayLength; // 數組長度
-        const isStringWithInitialNull = fieldData.isStringWithInitialNull || false; // 字符串是否以空字符開頭
         
-        // 創建默認轉換函數
-        let readTransform: (input: any) => any;
-        let writeTransform: (input: any) => any;
-        
-        // 根據字段類型設置適合嘅默認轉換函數
-        if (fieldData.readTransform) {
-            readTransform = fieldData.readTransform;
-        } else if (fieldData.type === 'boolean') {
-            // 布爾類型：數字/布爾值 -> 布爾值
-            readTransform = ((input: any): boolean => {
-                return input === true || input === 1 || Boolean(input);
-            }) as any;
-        } else if (fieldData.type === 'string') {
-            // 字符串類型：確保結果是字符串
-            readTransform = ((input: any): string => {
-                return String(input);
-            }) as any;
-        } else if (fieldData.type === 'bigint') {
-            // 大整數類型：確保結果是 BigInt
-            readTransform = ((input: any): bigint => {
-                // 如果已經是 BigInt 類型，直接返回
-                if (typeof input === 'bigint') return input;
-                // 如果是數字或字符串，轉換為 BigInt
-                return BigInt(input);
-            }) as any;
-        } else if (fieldData.type === 'arraybuffer') {
-            // ArrayBuffer 類型：確保結果是 ArrayBuffer
-            readTransform = ((input: any): ArrayBuffer => {
-                // 如果已經是 ArrayBuffer 類型，直接返回
-                if (input instanceof ArrayBuffer) return input;
-                // 如果是 Buffer 類型，轉換為 ArrayBuffer
-                if (Buffer.isBuffer(input)) return input.buffer.slice(input.byteOffset, input.byteOffset + input.length);
-                // 如果是其他類型，嘗試轉換為 Buffer 再到 ArrayBuffer
-                return Buffer.from(input).buffer;
-            }) as any;
-        } else {
-            // 數字類型：確保結果是數字
-            readTransform = ((input: any): number => {
-                return Number(input);
-            }) as any;
-        }
-        
-        if (fieldData.writeTransform) {
-            writeTransform = fieldData.writeTransform;
-        } else if (fieldData.type === 'boolean') {
-            // 布爾類型：布爾值 -> 數字
-            writeTransform = ((input: any): number => {
-                return input ? 1 : 0;
-            }) as any;
-        } else if (fieldData.type === 'string') {
-            // 字符串類型：確保結果是字符串
-            writeTransform = ((input: any): string => {
-                return String(input);
-            }) as any;
-        } else if (fieldData.type === 'bigint') {
-            // 大整數類型：確保結果是 BigInt
-            writeTransform = ((input: any): bigint => {
-                // 如果已經是 BigInt 類型，直接返回
-                if (typeof input === 'bigint') return input;
-                // 嘗試轉換為 BigInt
-                return BigInt(input);
-            }) as any;
-        } else if (fieldData.type === 'arraybuffer') {
-            // ArrayBuffer 類型：確保結果是 Buffer（用於寫入）
-            writeTransform = ((input: any): Buffer => {
-                // 如果是 ArrayBuffer，轉換為 Buffer
-                if (input instanceof ArrayBuffer) return Buffer.from(input);
-                // 如果已經是 Buffer，直接返回
-                if (Buffer.isBuffer(input)) return input;
-                // 其他情況，嘗試創建 Buffer
-                return Buffer.from(input);
-            }) as any;
-        } else {
-            // 數字類型：確保結果是數字
-            writeTransform = ((input: any): number => {
-                return Number(input);
-            }) as any;
-        }
+        // 直接使用用戶提供嘅 transform，如果冇就係 undefined
+        const readTransform = fieldData.readTransform;
+        const writeTransform = fieldData.writeTransform;
         
         // 第十一步：創建解析後的格式項，包含所有必要信息
-        // 呢個對象包含了字段嘅所有屬性，將用於後續嘅讀寫操作
         const parsedItem: ParsedFormatItem = {
             key: fieldName,
-            startByte,
-            startBit,
+            offset,
+            bitOffset,  // 更新為bitOffset
             bitLength,
             arrayLength,
-            type: fieldData.type,
-            isStringWithInitialNull,
+            type: type as 'boolean' | 'uint' | 'int' | 'string' | 'bigint' | 'arraybuffer',
             subFormat,
             readTransform,
             writeTransform
@@ -695,13 +676,13 @@ function parseFormat(format: ObjectFormat): ParsedFormat {
         keyMap.set(fieldName, parsedItem);
     }
     
-    // 第十三步：按 startByte 同 startBit 排序，確保按數據在二進制中嘅順序處理
+    // 第十三步：按 offset 同 bitOffset 排序，確保按數據在二進制中嘅順序處理
     // 呢個排序確保了讀寫操作按照字段在二進制數據中嘅實際順序進行
     parsedItems.sort((a, b) => {
-        if (a.startByte !== b.startByte) {
-            return a.startByte - b.startByte;  // 先按位元組排序
+        if (a.offset !== b.offset) {
+            return a.offset - b.offset;  // 先按位元組排序
         }
-        return a.startBit - b.startBit;  // 同一位元組內按位元排序
+        return a.bitOffset - b.bitOffset;  // 同一位元組內按位元排序
     });
     
     // 返回解析結果，包括格式項列表同名稱映射
@@ -715,9 +696,9 @@ function parseFormat(format: ObjectFormat): ParsedFormat {
  * 
  * // 使用對象格式
  * const objectFormat: ObjectFormat = {
- *   id: { startByte: 0, bitLength: 16, isSigned: false },
- *   name: { startByte: 2, length: 10, isString: true },
- *   age: { startByte: 12, bitLength: 8, isSigned: false }
+ *   id: { offset: 0, bitLength: 16, isSigned: false },
+ *   name: { offset: 2, length: 10, isString: true },
+ *   age: { offset: 12, bitLength: 8, isSigned: false }
  * };
  * 
  * // 解析二進制數據
@@ -735,21 +716,21 @@ function parseFormat(format: ObjectFormat): ParsedFormat {
  * // 復雜範例：嵌套對象
  * const nestedObjectFormat: ObjectFormat = {
  *   header: { 
- *     startByte: 0, 
+ *     offset: 0, 
  *     length: 8,
  *     subFormat: {
- *       version: { startByte: 0, bitLength: 8 },
- *       type: { startByte: 1, bitLength: 8 },
- *       reserved: { startByte: 2, length: 6 }
+ *       version: { offset: 0, bitLength: 8 },
+ *       type: { offset: 1, bitLength: 8 },
+ *       reserved: { offset: 2, length: 6 }
  *     }
  *   },
  *   data: { 
- *     startByte: 8, 
+ *     offset: 8, 
  *     length: 20,
  *     subFormat: {
- *       id: { startByte: 0, bitLength: 16 },
- *       value: { startByte: 2, bitLength: 32, isSigned: true },
- *       text: { startByte: 6, length: 14, isString: true }
+ *       id: { offset: 0, bitLength: 16 },
+ *       value: { offset: 2, bitLength: 32, isSigned: true },
+ *       text: { offset: 6, length: 14, isString: true }
  *     }
  *   }
  * };
@@ -773,7 +754,7 @@ export function toJS<T extends ObjectFormat>(
   recordLength: number, 
   format: T, 
   keepBase64?: boolean, 
-  isBigEndian: boolean = false
+  isBigEndian = false
 ): Array<InferObjectFormat<T>> {
     // 如果輸入是 ArrayBuffer，轉換為 Buffer
     const buffer = buf instanceof ArrayBuffer ? Buffer.from(new Uint8Array(buf)) : buf;
@@ -787,7 +768,7 @@ export function toJS<T extends ObjectFormat>(
     const numRecords = Math.floor(buffer.length / recordLength);
     
     // 第三步：初始化結果數組，用嚟存放解析後嘅 JavaScript 對象
-    let records: Record<string, any>[] = [];
+    const records: Record<string, any>[] = [];
     
     // 第四步：根據大小端選擇適合嘅讀取函數
     // 小端序（先低位後高位）係默認值，適用於大多數系統
@@ -797,7 +778,7 @@ export function toJS<T extends ObjectFormat>(
     // 第五步：循環處理每一條記錄
     for (let j = 0; j < numRecords; j++) {
         // 創建一個新嘅記錄對象，將存放解析出嚟嘅所有字段值
-        let record: Record<string, any> = {};
+        const record: Record<string, any> = {};
 
         // 提取當前記錄嘅二進制數據
         // 使用 slice 方法從主緩衝區切割出當前記錄嘅數據部分
@@ -815,20 +796,20 @@ export function toJS<T extends ObjectFormat>(
             const {
                 key,            // 字段名稱
                 arrayLength,    // 數組長度（如果是數組）
-                bitLength,    // 位元長度
+                bitLength,      // 位元長度
                 type,           // 數據類型（布爾、整數、字符串等）
-                startByte,      // 起始位元組
-                startBit,       // 起始位元
+                offset,      // 起始位元組
+                bitOffset,      // 起始位元
                 subFormat,      // 子格式（如果有）
-                readTransform,         // 自定義讀取函數
+                readTransform,  // 自定義讀取函數
             } = parsedItems[z];
 
             // 初始化結果數組，用於存放字段嘅值（單值或數組）
-            let results: any[] = [];
+            const results: any[] = [];
             
             // 確定需要讀取嘅元素數量
             // 如果字段係數組類型，使用 arrayLength；否則讀取一個值
-            let numRead = arrayLength || 1; 
+            const numRead = arrayLength || 1;
 
             // 第七步：循環讀取每個元素
             for (let i = 0; i < numRead; i++) {
@@ -844,7 +825,7 @@ export function toJS<T extends ObjectFormat>(
                     
                     // 從當前記錄中提取子記錄嘅數據
                     // 使用 slice 方法切割出子記錄嘅部分
-                    const subRecordBuf = recordBuf.slice(startByte + resultLength * i, startByte + resultLength * (i + 1));
+                    const subRecordBuf = recordBuf.slice(offset + resultLength * i, offset + resultLength * (i + 1));
 
                     // 遞歸處理子格式
                     // 呼叫 toJS 自身處理子格式，實現了嵌套對象嘅解析
@@ -855,84 +836,63 @@ export function toJS<T extends ObjectFormat>(
                         false,           // 不保留 base64
                         isBigEndian,     // 保持同樣嘅字節序
                     );
-                    result = subResults[0]; // 取出子記錄結果
+
+                    // 獲取子格式解析結果
+                    result = subResults[0];
                 } 
                 // 情況 2：處理字符串
                 else if (type === 'string') {
                     // 讀取字符串，計算偏移和長度
                     // 呼叫 readString 函數從緩衝區讀取 UTF-8 編碼嘅字符串
-                    const rawString = readString(
+                    result = readString(
                         recordBuf,
-                        startByte + (bitLength / 8) * i, // 起始位置
+                        offset + (bitLength / 8) * i, // 起始位置
                         bitLength / 8,                    // 字符串長度（位元轉位元組）
                     );
-                    
-                    // 確保結果是字符串類型，然後應用 readTransform
-                    result = readTransform(rawString);
                 }
                 // 情況 3：處理 ArrayBuffer 類型
                 else if (type === 'arraybuffer') {
                     // 從記錄緩衝區中提取相應區域
-                    const startOffset = startByte + (bitLength / 8) * i;
+                    const startOffset = offset + (bitLength / 8) * i;
                     const length = bitLength / 8;
                     
                     // 切割出需要的部分
                     const bufferSlice = recordBuf.slice(startOffset, startOffset + length);
                     
                     // 將 Buffer 轉換為 ArrayBuffer
-                    const arrayBufferResult = bufferSlice.buffer.slice(
+                    result = bufferSlice.buffer.slice(
                         bufferSlice.byteOffset, 
                         bufferSlice.byteOffset + bufferSlice.length
                     );
-                    
-                    // 應用 readTransform 函數
-                    result = readTransform(arrayBufferResult);
                 } 
                 // 情況 4：處理數字和布爾值
                 else {
-                    // 計算當前元素嘅位元偏移
-                    // 對於數組元素，每個元素都有自己嘅位元偏移
-                    const correctedStartBit = i * bitLength;
-                    
-                    // 根據類型進行適當的處理
+                    // 計算起始位元組位置（考慮位元偏移）
+                    // 對於位元級操作，需要精確計算每個位元嘅位置
+                    const correctedStartByte = Math.trunc((offset * 8 + (bitOffset + i * bitLength)) / 8);
+                    // 計算起始位元位置
+                    const correctedBitOffset = (bitOffset + i * bitLength) % 8;
+
+                    // 讀取原始值
+                    const rawValue = readBitsFn(
+                        recordBuf,
+                        correctedStartByte,
+                        correctedBitOffset,
+                        bitLength,
+                        type === 'int'  // 如果係 int 類型，就係有符號整數
+                    );
+
+                    // 根據類型轉換值
                     let typedValue: any;
-                    
-                    // 如果是布爾類型，將數值轉換為布爾值
                     if (type === 'boolean') {
-                        // 讀取數值
-                        const rawValue = readBitsFn(
-                            recordBuf,
-                            startByte,
-                            startBit + correctedStartBit,
-                            bitLength,
-                            false  // 布爾值不需要有符號
-                        );
-                        typedValue = rawValue !== 0;  // 非零即為 true
-                    } 
-                    // 如果是 BigInt 類型，使用專門的 BigInt 讀取函數
-                    else if (type === 'bigint') {
-                        // 對於 BigInt 類型，我們使用專門的 BigInt 讀取函數
-                        // 確保能夠處理完整的 64 位整數
-                        typedValue = readBigInt64(
-                            recordBuf,
-                            startByte + Math.floor(correctedStartBit / 8),
-                            !isBigEndian  // readBigInt64 的 littleEndian 參數與 isBigEndian 相反
-                        );
-                    } 
-                    // 對於其他數字類型，使用通用的位元讀取函數
-                    else {
-                        // 讀取數值
-                        typedValue = readBitsFn(
-                            recordBuf,
-                            startByte,
-                            startBit + correctedStartBit,
-                            bitLength,
-                            type === 'int'  // 是否為有符號整數
-                        );
+                        typedValue = rawValue === 1;
+                    } else if (type === 'bigint') {
+                        typedValue = BigInt(rawValue);
+                    } else {
+                        typedValue = rawValue;
                     }
                     
-                    // 應用 readTransform 函數
-                    result = readTransform(typedValue);
+                    result = typedValue;
                 }
 
                 // 添加到結果數組
@@ -941,11 +901,11 @@ export function toJS<T extends ObjectFormat>(
 
             // 第九步：根據是否為數組，設置字段值
             if (arrayLength) {
-                // 如果是數組，直接使用結果數組
-                record[key] = results;
+                // 如果是數組，直接使用結果數組，並應用 readTransform
+                record[key] = readTransform ? readTransform(results) : results;
             } else {
-                // 如果不是數組，使用第一個（也是唯一）結果
-                record[key] = results[0];
+                // 如果不是數組，使用第一個（也是唯一）結果，並應用 readTransform
+                record[key] = readTransform ? readTransform(results[0]) : results[0];
             }
         }
 
@@ -971,7 +931,7 @@ export function fromJS<T extends ObjectFormat>(
   arr: Array<InferObjectFormat<T>>, 
   recordLength: number, 
   format: T, 
-  isBigEndian: boolean = false,
+  isBigEndian = false,
   returnType: 'buffer' | 'arraybuffer' = 'buffer'
 ): Buffer | ArrayBuffer {
     // 第一步：解析格式定義，獲取經過驗證和處理嘅格式項列表
@@ -980,7 +940,7 @@ export function fromJS<T extends ObjectFormat>(
     
     // 第二步：初始化 Buffer 數組，用於存儲每個記錄嘅二進制數據
     // 每個 JavaScript 對象會轉換成一個 Buffer，最後合併
-    let bufs: Buffer[] = [];
+    const bufs: Buffer[] = [];
     
     // 第三步：根據大小端選擇適合嘅寫入函數
     // 小端序（先低位後高位）係默認值，適用於大多數系統
@@ -994,7 +954,7 @@ export function fromJS<T extends ObjectFormat>(
 
         // 第五步：創建一個新的 Buffer，大小為指定嘅記錄長度
         // 呢個 Buffer 初始化為全零，將用嚟存放轉換後嘅二進制數據
-        let recordBuf = Buffer.alloc(recordLength);
+        const recordBuf = Buffer.alloc(recordLength);
 
         // 第六步：如果對象有 base64 屬性，將其轉換為二進制並複製到 buffer
         // 呢個功能允許用戶保留原始二進制數據嘅某些部分不變
@@ -1009,12 +969,12 @@ export function fromJS<T extends ObjectFormat>(
             const {
                 key,            // 字段名稱
                 arrayLength,    // 數組長度（如果是數組）
-                bitLength,    // 位元長度
+                bitLength,      // 位元長度
                 type,           // 數據類型（布爾、整數、字符串等）
-                startByte,      // 起始位元組
-                startBit,       // 起始位元
+                offset,         // 起始位元組
+                bitOffset,      // 起始位元
                 subFormat,      // 子格式（如果有）
-                writeTransform,         // 自定義寫入函數
+                writeTransform, // 自定義寫入函數
             } = parsedItems[z];
 
             // 第八步：獲取字段數據，處理數組情況
@@ -1032,9 +992,12 @@ export function fromJS<T extends ObjectFormat>(
             const dataArray = Array.isArray(fieldData) ? fieldData : [fieldData];
             const numWrites = arrayLength || 1; // 需要寫入嘅元素數量
 
+            // 先應用 writeTransform
+            const transformedArray = writeTransform ? writeTransform(dataArray) : dataArray;
+
             // 第十步：循環寫入每個元素
-            for (let i = 0; i < numWrites && i < dataArray.length; i++) {
-                const currentValue = dataArray[i];
+            for (let i = 0; i < numWrites && i < transformedArray.length; i++) {
+                const currentValue = transformedArray[i];
                 
                 // 跳過未定義的值
                 // 如果某個元素未定義，保持該位置嘅二進制數據不變
@@ -1056,26 +1019,26 @@ export function fromJS<T extends ObjectFormat>(
                     
                     // 將子記錄 Buffer 複製到主記錄 Buffer 中
                     // 使用 copy 方法將子記錄嘅二進制數據複製到正確嘅位置
-                    subRecordBuf.copy(recordBuf, (startByte + resultLength * i));
-                } 
+                    subRecordBuf.copy(recordBuf, (offset + resultLength * i));
+                }
                 // 情況 2：處理字符串
                 else if (type === 'string') {
                     // 將字符串寫入 Buffer
                     // 呼叫 writeString 函數將字符串轉換為 UTF-8 編碼並寫入緩衝區
-                    writeString(
-                        recordBuf,
-                        startByte + (i * (bitLength / 8)), // 計算起始位置
+                        writeString(
+                            recordBuf,
+                        offset + (i * (bitLength / 8)), // 計算起始位置
                         (bitLength / 8),                   // 計算長度（位元轉位元組）
-                        String(writeTransform(currentValue))  // 應用自定義寫入函數，確保結果是字符串
+                        writeTransform ? String(writeTransform(currentValue)) : String(currentValue)  // 如果有 writeTransform 就轉換，冇就直接用原始值
                     );
                 }
                 // 情況 3：處理 ArrayBuffer 類型
                 else if (type === 'arraybuffer') {
                     // 應用 writeTransform 轉換值（確保是 Buffer）
-                    const bufferValue = writeTransform(currentValue);
+                    const bufferValue = writeTransform ? writeTransform(currentValue) : currentValue;
                     
                     // 計算目標位置和長度
-                    const targetStart = startByte + (i * (bitLength / 8));
+                    const targetStart = offset + (i * (bitLength / 8));
                     const length = bitLength / 8;
                     
                     // 將 Buffer 複製到記錄緩衝區
@@ -1095,22 +1058,22 @@ export function fromJS<T extends ObjectFormat>(
                 else {
                     // 計算起始位元組位置（考慮位元偏移）
                     // 對於位元級操作，需要精確計算每個位元嘅位置
-                    const correctedStartByte = Math.trunc((startByte * 8 + (startBit + i * bitLength)) / 8);
+                    const correctedStartByte = Math.trunc((offset * 8 + (bitOffset + i * bitLength)) / 8);
                     // 計算起始位元位置
-                    const correctedStartBit = (startBit + i * bitLength) % 8;
+                    const correctedBitOffset = (bitOffset + i * bitLength) % 8;
 
                     // 通過 writeTransform 轉換值
-                    let transformedValue = writeTransform(currentValue);
+                    const transformedValue = writeTransform ? writeTransform(currentValue) : currentValue;
                     
                     // 根據類型進行適當的處理
                     // 布爾類型：轉換為 0 或 1
                     if (type === 'boolean') {
                         const boolValue = transformedValue ? 1 : 0;
                         // 寫入數值到 Buffer
-                        writeBitsFn(
-                            recordBuf,
-                            correctedStartByte,
-                            correctedStartBit,
+                    writeBitsFn(
+                        recordBuf,
+                        correctedStartByte,
+                            correctedBitOffset,
                             bitLength,
                             boolValue
                         );
@@ -1123,14 +1086,14 @@ export function fromJS<T extends ObjectFormat>(
                             : BigInt(transformedValue);
                         
                         // 使用專門的 BigInt 寫入函數
-                        // startBit 必須是 8 的整數倍，否則無法正確寫入 64 位整數
-                        if (startBit % 8 !== 0) {
-                            throw new Error(`BigInt fields must start at byte boundaries (startBit must be a multiple of 8). Field: "${key}"`);
+                        // bitOffset 必須是 8 的整數倍，否則無法正確寫入 64 位整數
+                        if (bitOffset % 8 !== 0) {
+                            throw new Error(`BigInt fields must start at byte boundaries (bitOffset must be a multiple of 8). Field: "${key}"`);
                         }
                         
                         writeBigInt64(
                             recordBuf,
-                            startByte,
+                            offset,
                             bigintValue,
                             !isBigEndian  // writeBigInt64 的 littleEndian 參數與 isBigEndian 相反
                         );
@@ -1141,7 +1104,7 @@ export function fromJS<T extends ObjectFormat>(
                         writeBitsFn(
                             recordBuf,
                             correctedStartByte,
-                            correctedStartBit,
+                            correctedBitOffset,
                             bitLength,
                             Number(transformedValue) // 確保是數字類型
                         );
@@ -1162,9 +1125,8 @@ export function fromJS<T extends ObjectFormat>(
     if (returnType === 'arraybuffer') {
         // 將 Buffer 轉換為 ArrayBuffer
         return result.buffer.slice(result.byteOffset, result.byteOffset + result.length);
-    } else {
-        return result;
     }
+        return result;
 }
 
 /**
@@ -1200,7 +1162,7 @@ export function calculateLength(format: ObjectFormat): number {
     let maxEndByte = 0;
     
     for (const item of items) {
-        const itemBits = item.startByte * 8 + item.startBit + item.bitLength;
+        const itemBits = item.offset * 8 + item.bitOffset + item.bitLength;
         const itemEndByte = Math.ceil(itemBits / 8);
         maxEndByte = Math.max(maxEndByte, itemEndByte);
     }
@@ -1219,7 +1181,7 @@ export function calculateLength(format: ObjectFormat): number {
 export function createBuffer<T extends ObjectFormat>(
     data: InferObjectFormat<T>,
     format: T,
-    isBigEndian: boolean = false,
+    isBigEndian = false,
     returnType: 'buffer' | 'arraybuffer' = 'buffer'
 ): Buffer | ArrayBuffer {
     // 計算所需的緩衝區長度
@@ -1235,7 +1197,7 @@ export function createBuffer<T extends ObjectFormat>(
  * @param value BigInt 值
  * @param littleEndian 是否使用小端序 (默認 true)
  */
-export function writeBigInt64(buf: Buffer, offset: number, value: bigint, littleEndian: boolean = true): void {
+export function writeBigInt64(buf: Buffer, offset: number, value: bigint, littleEndian = true): void {
     // 處理負數，使用二補數表示
     let val = value;
     const negative = val < 0n;
@@ -1266,7 +1228,7 @@ export function writeBigInt64(buf: Buffer, offset: number, value: bigint, little
  * @param littleEndian 是否使用小端序 (默認 true)
  * @returns 讀取的 BigInt 值
  */
-export function readBigInt64(buf: Buffer, offset: number, littleEndian: boolean = true): bigint {
+export function readBigInt64(buf: Buffer, offset: number, littleEndian = true): bigint {
     let val = 0n;
     
     if (littleEndian) {
@@ -1288,4 +1250,92 @@ export function readBigInt64(buf: Buffer, offset: number, littleEndian: boolean 
     }
     
     return val;
+}
+
+/**
+ * Bitten 類 - OOP 風格嘅二進制數據處理
+ * 
+ * 相比原本嘅函數式風格，類式 API 提供更好嘅使用體驗：
+ * - 更好嘅封裝：一次設定格式，重複使用
+ * - 更直觀嘅 API：對象化嘅接口，方便使用
+ * - 實例狀態：保存設定（如 endianness、record length）喺實例內
+ * - 更好嘅集成體驗：同其他 OOP 代碼更容易集成
+ */
+export class Bitten<T extends ObjectFormat = ObjectFormat, D = InferObjectFormat<T>> {
+  private format: T;
+  private recordLength: number;
+  private isBigEndian: boolean;
+  private parsedFormat: ParsedFormat;
+  
+  /**
+   * 創建一個二進制格式處理器
+   * @param format 格式定義
+   * @param options 附加選項，包括記錄長度和大小端序
+   */
+  constructor(format: T, options?: { 
+    recordLength?: number, 
+    isBigEndian?: boolean 
+  }) {
+    this.format = format as T; // 使用类型断言处理非const格式
+    this.parsedFormat = parseFormat(this.format);
+    
+    // 計算或使用提供嘅記錄長度
+    if (options?.recordLength !== undefined) {
+      this.recordLength = options.recordLength;
+    } else {
+      let maxEndByte = 0;
+      for (const item of this.parsedFormat.items) {
+        const itemBits = item.offset * 8 + item.bitOffset + item.bitLength;
+        const itemEndByte = Math.ceil(itemBits / 8);
+        maxEndByte = Math.max(maxEndByte, itemEndByte);
+      }
+      this.recordLength = maxEndByte;
+    }
+    
+    // 設置大小端序
+    this.isBigEndian = options?.isBigEndian ?? false;
+  }
+  
+  /**
+   * 從二進制數據解析為 JavaScript 對象
+   * @param buffer 二進制數據（Buffer 或 ArrayBuffer）
+   * @param options 選項，例如是否保留 base64 數據
+   * @returns 解析後嘅對象
+   */
+  fromBuffer<R = D>(buffer: Buffer | ArrayBuffer, options?: {
+    keepBase64?: boolean
+  }): R {
+    const result = toJS(
+      buffer, 
+      this.recordLength, 
+      this.format, 
+      options?.keepBase64, 
+      this.isBigEndian
+    );
+    
+    // toJS 始終返回陣列，我們只返回陣列嘅第一個元素
+    if (result.length === 0) {
+      throw new Error('Buffer 無法解析為有效對象');
+    }
+    
+    // 使用泛型回傳類型，確保類型安全
+    return result[0] as R;
+  }
+  
+  /**
+   * 將 JavaScript 對象轉換為二進制數據
+   * @param data 要轉換嘅對象
+   * @param returnType 返回類型：'buffer' 或 'arraybuffer'
+   * @returns 二進制數據（Buffer 或 ArrayBuffer）
+   */
+  toBuffer(data: D, returnType: 'buffer' | 'arraybuffer' = 'buffer'): Buffer | ArrayBuffer {
+    // 將單個對象包裝為陣列，因為 fromJS 需要陣列作為輸入
+    return fromJS(
+      [data as InferObjectFormat<T>], 
+      this.recordLength, 
+      this.format, 
+      this.isBigEndian,
+      returnType
+    );
+  }
 }

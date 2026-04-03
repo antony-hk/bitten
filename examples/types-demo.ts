@@ -1,5 +1,5 @@
 import { Buffer } from 'buffer';
-import { ObjectFormat, toJS, fromJS, InferObjectFormat } from '../src/index';
+import { Bitten, toJS, fromJS, InferObjectFormat, FormatFieldType } from '../src/index';
 
 // ==== 格式定義部分 ====
 
@@ -31,6 +31,9 @@ const typesFormat = {
   legacyInt: { startByte: 10, bitLength: 8, type: 'int' }
 } as const;
 
+// 創建 Bitten 實例
+const bitten = new Bitten(typesFormat);
+
 // 添加這裡：輸出格式定義中的 readTransform
 console.log("\n格式定義詳情:");
 console.log("boolField readTransform:", typesFormat.boolField.readTransform);
@@ -39,7 +42,6 @@ console.log("boolField type:", typeof true);
 
 // 輸出格式類型推導
 console.log("\n類型推導測試:");
-import { FormatFieldType } from '../src/index';
 type BoolFieldType = FormatFieldType<typeof typesFormat.boolField>;
 console.log("推導的 BoolFieldType 應該是 string 類型");
 
@@ -48,6 +50,9 @@ const boolArrayFormat = {
   // 布爾數組：每個值佔用1個位元，總共8個值，從第0個位元組開始
   flags: { startByte: 0, bitLength: 1, type: 'boolean', arrayLength: 8 }
 } as const;
+
+// 創建布爾數組的 Bitten 實例
+const boolArrayBitten = new Bitten(boolArrayFormat);
 
 // ==== 測試數據部分 ====
 
@@ -61,10 +66,8 @@ const testBuffer = Buffer.from([0x81, 0xFF, 0x41, 0x42, 0x43, 0x00, 0x00, 0x58, 
 
 // ==== 測試解析部分 ====
 
-// 使用 toJS 函數將二進制數據解析為 JavaScript 對象
-// 參數：二進制數據、每條記錄長度（11位元組）、格式定義
-const result = toJS(testBuffer, 11, typesFormat);
-const data = result[0]; // 獲取第一條記錄
+// 使用 Bitten 類將二進制數據解析為 JavaScript 對象
+const data = bitten.fromBuffer(testBuffer);
 
 // 檢查各字段嘅值和類型，顯示解析結果
 console.log('布爾字段:', data.boolField, '類型:', typeof data.boolField);
@@ -86,9 +89,8 @@ console.log("data.boolField 的直接輸出:", String(data.boolField));
 // 0xA5: 10100101 - 表示 [true, false, true, false, false, true, false, true]
 const boolArrayBuffer = Buffer.from([0xA5]);
 
-// 使用 toJS 函數將二進制數據解析為 JavaScript 對象
-const boolResult = toJS(boolArrayBuffer, 1, boolArrayFormat);
-const boolData = boolResult[0];
+// 使用 Bitten 類將二進制數據解析為 JavaScript 對象
+const boolData = boolArrayBitten.fromBuffer(boolArrayBuffer);
 
 // 輸出布爾數組內容及其類型
 console.log('布爾數組:', boolData.flags);
@@ -106,15 +108,13 @@ const newData = {
   legacyInt: -5
 };
 
-// 使用 fromJS 函數將對象轉換為二進制數據
-// 參數：對象數組、每條記錄長度（11位元組）、格式定義
-const newBuffer = fromJS([newData], 11, typesFormat);
+// 使用 Bitten 類將對象轉換為二進制數據
+const newBuffer = bitten.toBuffer(newData) as Buffer;
 console.log('寫入後的Buffer:', newBuffer);
 
-// 再次使用 toJS 函數將寫入嘅二進制數據解析回 JavaScript 對象
+// 再次使用 Bitten 類將寫入嘅二進制數據解析回 JavaScript 對象
 // 用於驗證寫入是否成功
-const verifyResult = toJS(newBuffer, 11, typesFormat);
-const verifyData = verifyResult[0];
+const verifyData = bitten.fromBuffer(newBuffer);
 console.log('驗證數據:', verifyData);
 
 // ==== 測試布爾數組寫入部分 ====
@@ -124,11 +124,43 @@ const newBoolData = {
   flags: [true, false, true, true, false, false, true, false]
 };
 
-// 使用 fromJS 函數將對象轉換為二進制數據
-const newBoolBuffer = fromJS([newBoolData], 1, boolArrayFormat);
+// 使用 Bitten 類將對象轉換為二進制數據
+const newBoolBuffer = boolArrayBitten.toBuffer(newBoolData) as Buffer;
 console.log('布爾數組Buffer:', newBoolBuffer);
 
-// 再次使用 toJS 函數將寫入嘅二進制數據解析回 JavaScript 對象
-const verifyBoolResult = toJS(newBoolBuffer, 1, boolArrayFormat);
-const verifyBoolData = verifyBoolResult[0];
+// 再次使用 Bitten 類將寫入嘅二進制數據解析回 JavaScript 對象
+const verifyBoolData = boolArrayBitten.fromBuffer(newBoolBuffer);
 console.log('驗證布爾數組:', verifyBoolData.flags);
+
+// ==== 測試處理多條記錄部分 ====
+console.log("\n處理多條記錄:");
+// 創建多條記錄的測試數據
+const multipleRecords = [
+  {
+    boolField: "test" as any,
+    uintField: 10,
+    intField: -5,
+    stringField: 'Rec1',
+    legacyString: 'A1',
+    legacyInt: -1
+  },
+  {
+    boolField: "null" as any,
+    uintField: 20,
+    intField: -8,
+    stringField: 'Rec2',
+    legacyString: 'A2',
+    legacyInt: -2
+  }
+];
+
+// 使用函數式 API 將多條記錄轉換為二進制
+const multiBuffer = fromJS(multipleRecords, 11, typesFormat) as Buffer;
+console.log('多條記錄的 Buffer 長度:', multiBuffer.length);
+
+// 使用函數式 API 讀取多條記錄
+const parsedMultiple = toJS(multiBuffer, 11, typesFormat);
+console.log('解析的記錄數量:', parsedMultiple.length);
+parsedMultiple.forEach((record, index) => {
+  console.log(`記錄 #${index + 1}:`, record);
+});

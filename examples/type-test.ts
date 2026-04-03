@@ -1,4 +1,4 @@
-import { FormatFieldType, ObjectFormat, InferObjectFormat, toJS, fromJS } from '../src/index';
+import { FormatFieldType, Bitten, InferObjectFormat, ObjectFormat } from '../src/index';
 import { Buffer } from 'buffer';
 
 // 測試基本類型推導
@@ -96,7 +96,7 @@ console.log('TransformedStringToDateType type:', typeof new Date());
 console.log('\n實際執行測試:');
 
 // 創建一個測試格式
-const runtimeTestFormat: ObjectFormat = {
+const runtimeTestFormat = {
   normal: {
     startByte: 0,
     bitLength: 1,
@@ -108,33 +108,37 @@ const runtimeTestFormat: ObjectFormat = {
     type: 'boolean' as const,
     readTransform: (input: boolean) => input ? "Yes" : "No"
   }
-};
+} as const;
+
+// 創建 Bitten 實例
+const bitten = new Bitten(runtimeTestFormat);
 
 // 創建測試數據
 const testBuffer = Buffer.from([0x01, 0x01]); // 兩個位元組，都是1
-const recordLength = 2;
 
 // 解析數據
-const parsed = toJS(testBuffer, recordLength, runtimeTestFormat);
+const parsed = bitten.fromBuffer(testBuffer);
 
 // 檢查實際類型
 console.log('解析後的值:');
-console.log('normal值:', parsed[0].normal, '類型:', typeof parsed[0].normal);
-console.log('transformed值:', parsed[0].transformed, '類型:', typeof parsed[0].transformed);
+console.log('normal值:', parsed.normal, '類型:', typeof parsed.normal);
+console.log('transformed值:', parsed.transformed, '類型:', typeof parsed.transformed);
 
 // ==== 測試特殊案例 ====
 console.log('\n特殊案例測試:');
 
+// 創建 Bitten 實例
+const specialBitten = new Bitten(specialTestFormat);
+
 // 創建測試數據：5個字節字符串 "HELLO" + 1個布爾值(1)
 const specialBuffer = Buffer.from([0x48, 0x45, 0x4C, 0x4C, 0x4F, 0x01]);
-const specialRecordLength = 6;
 
 // 解析數據
-const specialParsed = toJS(specialBuffer, specialRecordLength, specialTestFormat);
+const specialParsed = specialBitten.fromBuffer(specialBuffer);
 
 // 檢查類型及結果
-console.log('specialParsed.strField:', specialParsed[0].strField, '類型:', typeof specialParsed[0].strField);
-console.log('specialParsed.transformedField:', specialParsed[0].transformedField, '類型:', typeof specialParsed[0].transformedField);
+console.log('specialParsed.strField:', specialParsed.strField, '類型:', typeof specialParsed.strField);
+console.log('specialParsed.transformedField:', specialParsed.transformedField, '類型:', typeof specialParsed.transformedField);
 
 // 測試類型系統是否正確推導
 type SpecialTestFormatType = InferObjectFormat<typeof specialTestFormat>;
@@ -145,3 +149,22 @@ type SpecialTestFormatType = InferObjectFormat<typeof specialTestFormat>;
 //   strField: "test",
 //   transformedField: "Yes" // 如果這裡錯誤，表示類型推導出問題
 // }; 
+
+// ==== 測試寫入功能 ====
+console.log('\n測試寫入功能:');
+
+// 創建測試對象
+const testObject = {
+  normal: true,
+  transformed: "Yes" as "Yes" | "No" // 類型必須是 "Yes" | "No"
+};
+
+// 寫入二進制數據
+const writtenBuffer = bitten.toBuffer(testObject) as Buffer;
+console.log('寫入後的Buffer:', writtenBuffer);
+
+// 再次解析
+const parsedAgain = bitten.fromBuffer(writtenBuffer);
+console.log('再次解析結果:');
+console.log('normal值:', parsedAgain.normal, '類型:', typeof parsedAgain.normal);
+console.log('transformed值:', parsedAgain.transformed, '類型:', typeof parsedAgain.transformed); 
