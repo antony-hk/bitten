@@ -6,18 +6,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Build (outputs to dist/ as UMD and ESM)
-npm run build
+pnpm build
+
+# Run tests
+pnpm test
 
 # Type-check without building
-npx tsc --noEmit
+pnpm exec tsc --noEmit
 
 # Run a single example file
-npx ts-node examples/<filename>.ts
-# or
-node --loader ts-node/esm examples/<filename>.ts
+pnpm exec tsx examples/<filename>.ts
 ```
-
-There are no tests or lint commands configured.
 
 ## Architecture
 
@@ -25,9 +24,9 @@ There are no tests or lint commands configured.
 
 ### Build Output
 
-`build.js` uses esbuild to produce two bundles:
-- `dist/bitten.js` — UMD (CommonJS / browser global `bitten`)
-- `dist/bitten.mjs` — ESM
+`vite.config.ts` uses Vite 8 library mode to produce two bundles:
+- `dist/bitten.js` — ESM
+- `dist/bitten.umd.cjs` — UMD (CommonJS / browser global `bitten`)
 
 ### Core Concepts
 

@@ -5,9 +5,7 @@ Bitten 係一個 JavaScript/TypeScript 庫，用於解析和構建二進制數�
 ## 安裝
 
 ```bash
-npm install bitten
-# 或者
-yarn add bitten
+pnpm add bitten
 ```
 
 ## 使用方法
