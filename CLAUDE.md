@@ -33,7 +33,7 @@ pnpm exec tsx examples/<filename>.ts
 **Format definition**: A plain object where each key is a field name and the value is a `FormatItem` describing the field's type, bit/byte layout, and optional transforms.
 
 **Two APIs**:
-- Functional: `toJS(format, buffer, options)` and `fromJS(format, data, options)` for direct conversion
+- Functional: `toJS(buffer, format, options?)` and `fromJS(data, format, options?)` for direct conversion
 - OOP: `new Bitten(format, options)` → `.fromBuffer(buf)` / `.toBuffer(obj)`
 
 ### `src/index.ts` Layout
@@ -67,3 +67,10 @@ Fields support `arrayLength` for repeating fields and `subFormat` for nested obj
 - `parseFormat()` must be called before `toJS`/`fromJS`; the `Bitten` class calls it in its constructor.
 - Bit offsets accumulate across fields; `parseFormat` normalizes fractional bytes into `bitOffset` adjustments.
 - `toJS` with `includeRaw: true` adds a `_raw` field (base64 string) per record for round-tripping.
+- Uses Node `Buffer` API internally (`readUInt8`, `writeUInt8`, `Buffer.alloc`, `Buffer.concat`). Browser consumers need the `buffer` npm polyfill.
+
+### Consumer Projects
+
+- **neight** (`~/git/neight`) — Adapter layer that converts neight's array-based format definitions to bitten's object format. Used by pes-ted and pes-tungfam-webapp. Linked via `"bitten": "file:../bitten"`, which correctly resolves to this directory now that both repos sit side-by-side at `~/git/`.
+- **pes-tungfam-webapp / pes-mushroom-webapp** (`~/git/pes-customized-webapp/`) — Vite + React 19 web apps for processing PES TED files. Both vendor bitten under `vendor/bitten/` (`"bitten": "file:vendor/bitten"`), so they are independent of where the bitten source tree lives.
+- **pes-ted** (`~/git/pes-ted`) — Node.js project for PES binary data editing. Uses neight (original) for `bin2obj`/`obj2bin`.

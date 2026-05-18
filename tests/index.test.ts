@@ -105,17 +105,17 @@ describe('toJS / fromJS — uint', () => {
   it('parses a uint from buffer', () => {
     const buf = Buffer.alloc(2);
     buf.writeUInt16LE(1234);
-    const [rec] = toJS(buf, 2, fmt);
+    const [rec] = toJS(buf, fmt);
     expect(rec.value).toBe(1234);
   });
 
   it('round-trips uint via fromJS + toJS', () => {
-    const [rec] = toJS(fromJS([{ value: 65535 }], 2, fmt) as Buffer, 2, fmt);
+    const [rec] = toJS(fromJS([{ value: 65535 }], fmt) as Buffer, fmt);
     expect(rec.value).toBe(65535);
   });
 
   it('handles zero', () => {
-    const [rec] = toJS(fromJS([{ value: 0 }], 2, fmt) as Buffer, 2, fmt);
+    const [rec] = toJS(fromJS([{ value: 0 }], fmt) as Buffer, fmt);
     expect(rec.value).toBe(0);
   });
 });
@@ -126,12 +126,12 @@ describe('toJS / fromJS — int (signed)', () => {
   } as const;
 
   it('round-trips a negative int', () => {
-    const [rec] = toJS(fromJS([{ value: -42 }], 1, fmt) as Buffer, 1, fmt);
+    const [rec] = toJS(fromJS([{ value: -42 }], fmt) as Buffer, fmt);
     expect(rec.value).toBe(-42);
   });
 
   it('round-trips positive int', () => {
-    const [rec] = toJS(fromJS([{ value: 100 }], 1, fmt) as Buffer, 1, fmt);
+    const [rec] = toJS(fromJS([{ value: 100 }], fmt) as Buffer, fmt);
     expect(rec.value).toBe(100);
   });
 });
@@ -142,12 +142,12 @@ describe('toJS / fromJS — boolean', () => {
   } as const;
 
   it('round-trips true', () => {
-    const [rec] = toJS(fromJS([{ flag: true }], 1, fmt) as Buffer, 1, fmt);
+    const [rec] = toJS(fromJS([{ flag: true }], fmt) as Buffer, fmt);
     expect(rec.flag).toBe(true);
   });
 
   it('round-trips false', () => {
-    const [rec] = toJS(fromJS([{ flag: false }], 1, fmt) as Buffer, 1, fmt);
+    const [rec] = toJS(fromJS([{ flag: false }], fmt) as Buffer, fmt);
     expect(rec.flag).toBe(false);
   });
 });
@@ -158,12 +158,12 @@ describe('toJS / fromJS — string', () => {
   } as const;
 
   it('round-trips a string', () => {
-    const [rec] = toJS(fromJS([{ name: 'Alice' }], 8, fmt) as Buffer, 8, fmt);
+    const [rec] = toJS(fromJS([{ name: 'Alice' }], fmt) as Buffer, fmt);
     expect(rec.name).toBe('Alice');
   });
 
   it('handles empty string', () => {
-    const [rec] = toJS(fromJS([{ name: '' }], 8, fmt) as Buffer, 8, fmt);
+    const [rec] = toJS(fromJS([{ name: '' }], fmt) as Buffer, fmt);
     expect(rec.name).toBe('');
   });
 });
@@ -174,12 +174,12 @@ describe('toJS / fromJS — bigint', () => {
   } as const;
 
   it('round-trips a small bigint', () => {
-    const [rec] = toJS(fromJS([{ value: 999n }], 8, fmt) as Buffer, 8, fmt);
+    const [rec] = toJS(fromJS([{ value: 999n }], fmt) as Buffer, fmt);
     expect(rec.value).toBe(999n);
   });
 
   it('round-trips zero bigint', () => {
-    const [rec] = toJS(fromJS([{ value: 0n }], 8, fmt) as Buffer, 8, fmt);
+    const [rec] = toJS(fromJS([{ value: 0n }], fmt) as Buffer, fmt);
     expect(rec.value).toBe(0n);
   });
 });
@@ -196,7 +196,7 @@ describe('multiple fields — round-trip', () => {
 
   it('round-trips a mixed record', () => {
     const original = { id: 1001, score: -5, active: true, name: 'Bob' };
-    const [rec] = toJS(fromJS([original], 10, fmt) as Buffer, 10, fmt);
+    const [rec] = toJS(fromJS([original], fmt) as Buffer, fmt);
     expect(rec.id).toBe(1001);
     expect(rec.score).toBe(-5);
     expect(rec.active).toBe(true);
@@ -214,9 +214,9 @@ describe('multiple records', () => {
 
   it('round-trips three records', () => {
     const data = [{ x: 1, y: 2 }, { x: 3, y: 4 }, { x: 5, y: 6 }];
-    const buf = fromJS(data, 2, fmt) as Buffer;
+    const buf = fromJS(data, fmt) as Buffer;
     expect(buf.length).toBe(6);
-    const records = toJS(buf, 2, fmt);
+    const records = toJS(buf, fmt);
     expect(records).toHaveLength(3);
     expect(records[0]).toMatchObject({ x: 1, y: 2 });
     expect(records[1]).toMatchObject({ x: 3, y: 4 });
@@ -233,7 +233,7 @@ describe('arrayLength', () => {
 
   it('round-trips an array field', () => {
     const original = { values: [10, 20, 30, 40] };
-    const [rec] = toJS(fromJS([original], 4, fmt) as Buffer, 4, fmt);
+    const [rec] = toJS(fromJS([original], fmt) as Buffer, fmt);
     expect(rec.values).toEqual([10, 20, 30, 40]);
   });
 });
@@ -256,8 +256,8 @@ describe('subFormat — nested object', () => {
 
   it('round-trips a nested record', () => {
     const original = { header: { version: 2, flags: 0xFF, size: 1024 } };
-    const buf = fromJS([original], 4, fmt) as Buffer;
-    const [rec] = toJS(buf, 4, fmt);
+    const buf = fromJS([original], fmt) as Buffer;
+    const [rec] = toJS(buf, fmt);
     expect(rec.header.version).toBe(2);
     expect(rec.header.flags).toBe(0xFF);
     expect(rec.header.size).toBe(1024);
@@ -278,33 +278,30 @@ describe('readTransform', () => {
 
   it('applies readTransform on read', () => {
     const buf = Buffer.from([0x01]);
-    const [rec] = toJS(buf, 1, fmt);
+    const [rec] = toJS(buf, fmt);
     expect(rec.enabled).toBe('yes');
   });
 
   it('applies readTransform for false value', () => {
     const buf = Buffer.from([0x00]);
-    const [rec] = toJS(buf, 1, fmt);
+    const [rec] = toJS(buf, fmt);
     expect(rec.enabled).toBe('no');
   });
 });
 
 describe('writeTransform', () => {
-  // fromJS calls writeTransform twice for numeric fields:
-  //   1st call: receives the whole array [value]  → should pass arrays through unchanged
-  //   2nd call: receives the individual element   → do the real transformation here
   const fmt = {
     celsius: {
       offset: 0,
       bitLength: 8,
       type: 'uint' as const,
-      writeTransform: (v: any) => Array.isArray(v) ? v : Math.round(v * 2),
+      writeTransform: (v: number) => Math.round(v * 2),
       readTransform:  (v: number) => v / 2,
     },
   } as const;
 
   it('applies writeTransform on write and readTransform on read', () => {
-    const [rec] = toJS(fromJS([{ celsius: 36.5 }], 1, fmt) as Buffer, 1, fmt);
+    const [rec] = toJS(fromJS([{ celsius: 36.5 }], fmt) as Buffer, fmt);
     expect(rec.celsius).toBe(36.5);
   });
 });
@@ -317,15 +314,15 @@ describe('isBigEndian flag', () => {
   } as const;
 
   it('LE and BE produce different buffers for the same value', () => {
-    const leBuf = fromJS([{ value: 0x0102 }], 2, fmt, false) as Buffer;
-    const beBuf = fromJS([{ value: 0x0102 }], 2, fmt, true)  as Buffer;
+    const leBuf = fromJS([{ value: 0x0102 }], fmt) as Buffer;
+    const beBuf = fromJS([{ value: 0x0102 }], fmt, { isBigEndian: true }) as Buffer;
     expect(leBuf[0]).toBe(0x02); // LE: low byte first
     expect(beBuf[0]).toBe(0x01); // BE: high byte first
   });
 
   it('round-trips value in big-endian mode', () => {
-    const buf = fromJS([{ value: 9999 }], 2, fmt, true) as Buffer;
-    const [rec] = toJS(buf, 2, fmt, false, true);
+    const buf = fromJS([{ value: 9999 }], fmt, { isBigEndian: true }) as Buffer;
+    const [rec] = toJS(buf, fmt, { isBigEndian: true });
     expect(rec.value).toBe(9999);
   });
 });
@@ -339,14 +336,14 @@ describe('keepBase64', () => {
 
   it('attaches base64 string when keepBase64 = true', () => {
     const buf = Buffer.from([42]);
-    const [rec] = toJS(buf, 1, fmt, true);
+    const [rec] = toJS(buf, fmt, { keepBase64: true });
     expect(rec.base64).toBeDefined();
     expect(typeof rec.base64).toBe('string');
   });
 
   it('does not attach base64 by default', () => {
     const buf = Buffer.from([42]);
-    const [rec] = toJS(buf, 1, fmt);
+    const [rec] = toJS(buf, fmt);
     expect(rec.base64).toBeUndefined();
   });
 });
@@ -410,26 +407,23 @@ describe('Bitten class', () => {
 describe('parseFormat — validation errors', () => {
   it('throws when neither length nor bitLength is specified', () => {
     const fmt = { bad: { offset: 0, type: 'uint' as const } } as any;
-    expect(() => toJS(Buffer.alloc(1), 1, fmt)).toThrow();
+    expect(() => toJS(Buffer.alloc(1), fmt)).toThrow();
   });
 
   it('throws when boolean has bitLength != 1', () => {
     const fmt = { flag: { offset: 0, bitLength: 4, type: 'boolean' as const } } as any;
-    expect(() => toJS(Buffer.alloc(1), 1, fmt)).toThrow();
+    expect(() => toJS(Buffer.alloc(1), fmt)).toThrow();
   });
 
   it('throws when string field uses bitLength instead of length', () => {
     const fmt = { s: { offset: 0, bitLength: 8, type: 'string' as const } } as any;
-    expect(() => toJS(Buffer.alloc(1), 1, fmt)).toThrow();
+    expect(() => toJS(Buffer.alloc(1), fmt)).toThrow();
   });
 
   it('throws on duplicate field names', () => {
-    // Can't have duplicate keys in a JS object literal, so we build the format manually
     const fmt: any = {};
     Object.defineProperty(fmt, 'x', { value: { offset: 0, bitLength: 8, type: 'uint' }, enumerable: true });
-    // Simulate by calling parseFormat indirectly; duplicate keys in object literal are ignored by JS
-    // so we just verify the happy path isn't broken
-    expect(() => toJS(Buffer.alloc(1), 1, fmt)).not.toThrow();
+    expect(() => toJS(Buffer.alloc(1), fmt)).not.toThrow();
   });
 });
 
@@ -445,17 +439,17 @@ describe('packed bit fields', () => {
 
   it('round-trips packed bit fields within a single byte', () => {
     const original = { a: 3, b: 5, c: 7 };
-    const buf = fromJS([original], 1, fmt) as Buffer;
+    const buf = fromJS([original], fmt) as Buffer;
     expect(buf.length).toBe(1);
-    const [rec] = toJS(buf, 1, fmt);
+    const [rec] = toJS(buf, fmt);
     expect(rec.a).toBe(3);
     expect(rec.b).toBe(5);
     expect(rec.c).toBe(7);
   });
 
   it('fields are independent (changing one does not affect others)', () => {
-    const buf1 = fromJS([{ a: 1, b: 0, c: 0 }], 1, fmt) as Buffer;
-    const buf2 = fromJS([{ a: 0, b: 1, c: 0 }], 1, fmt) as Buffer;
+    const buf1 = fromJS([{ a: 1, b: 0, c: 0 }], fmt) as Buffer;
+    const buf2 = fromJS([{ a: 0, b: 1, c: 0 }], fmt) as Buffer;
     expect(buf1[0]).not.toBe(buf2[0]);
   });
 });

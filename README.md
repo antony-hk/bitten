@@ -24,14 +24,14 @@ const personFormat: ObjectFormat = {
   age: { startByte: 12, bitLength: 8, type: 'uint' }
 };
 
-// 解析二進制數據
+// 解析二進制數據（recordLength 自動計算）
 const buffer = getBufferFromSomewhere();
-const people = toJS(buffer, 13, personFormat);
+const people = toJS(buffer, personFormat);
 console.log(people[0].id, people[0].name, people[0].age);
 
 // 將對象轉換為二進制
 const newPerson = { id: 1, name: 'John', age: 30 };
-const newBuffer = fromJS([newPerson], 13, personFormat);
+const newBuffer = fromJS([newPerson], personFormat);
 ```
 
 ### 類式 API（OOP 風格 - 簡化版本）
@@ -63,10 +63,9 @@ const newBuffer = format.toBuffer(newPerson);
 
 // 處理多條記錄（使用直接函數）
 import { toJS, fromJS } from 'bitten';
-const recordLength = 13; // 每個記錄嘅字節長度
 const manyPeople: Person[] = [/* ... */];
-const bigBuffer = fromJS(manyPeople, recordLength, personFormat);
-const parsedPeople = toJS(bigBuffer, recordLength, personFormat);
+const bigBuffer = fromJS(manyPeople, personFormat);
+const parsedPeople = toJS(bigBuffer, personFormat);
 ```
 
 ## 方法說明
@@ -78,8 +77,8 @@ const parsedPeople = toJS(bigBuffer, recordLength, personFormat);
 
 ### 函數式 API
 
-- `toJS(buffer, recordLength, format, keepBase64?, isBigEndian?)` - 解析二進制數據為多個對象
-- `fromJS(jsObjects, recordLength, format, isBigEndian?, returnType?)` - 將多個對象轉換為二進制數據
+- `toJS(buffer, format, options?)` - 解析二進制數據為多個對象
+- `fromJS(jsObjects, format, options?)` - 將多個對象轉換為二進制數據
 
 ## 主要功能
 

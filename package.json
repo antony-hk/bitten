@@ -5,14 +5,14 @@
   "type": "module",
   "main": "dist/bitten.umd.cjs",
   "module": "dist/bitten.js",
-  "types": "dist/src/index.d.ts",
+  "types": "dist/index.d.ts",
   "exports": {
     "import": {
-      "types": "./dist/src/index.d.ts",
+      "types": "./dist/index.d.ts",
       "default": "./dist/bitten.js"
     },
     "require": {
-      "types": "./dist/src/index.d.ts",
+      "types": "./dist/index.d.ts",
       "default": "./dist/bitten.umd.cjs"
     }
   },

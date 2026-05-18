@@ -706,12 +706,12 @@ function parseFormat(format: ObjectFormat): ParsedFormat {
  * type Person = { id: number; name: string; age: number };
  * 
  * // 使用對象格式
- * const people = toJS<typeof objectFormat>(buffer, 13, objectFormat);
+ * const people = toJS(buffer, objectFormat);
  * console.log(people[0].id, people[0].name, people[0].age);
- * 
+ *
  * // 將對象轉回二進制
  * const newPerson = { id: 1, name: 'John', age: 30 };
- * const newBuffer = fromJS([newPerson], 13, objectFormat);
+ * const newBuffer = fromJS([newPerson], objectFormat);
  * 
  * // 復雜範例：嵌套對象
  * const nestedObjectFormat: ObjectFormat = {
@@ -736,33 +736,43 @@ function parseFormat(format: ObjectFormat): ParsedFormat {
  * };
  * 
  * // 能夠自動推導嵌套類型
- * const complexData = toJS(buffer, 28, nestedObjectFormat);
+ * const complexData = toJS(buffer, nestedObjectFormat);
  * console.log(complexData[0].header.version, complexData[0].data.text);
  */
 
 /**
  * 將二進制數據轉換為JavaScript對象
  * @param buf 包含二進制數據的Buffer或ArrayBuffer
- * @param recordLength 每個記錄的長度(位元組)
  * @param format 格式定義
- * @param keepBase64 是否在結果中保留原始數據的base64編碼
- * @param isBigEndian 是否使用大端序讀取(默認小端序)
+ * @param options 選項
+ * @param options.recordLength 每個記錄的長度(位元組)，默認自動計算
+ * @param options.keepBase64 是否在結果中保留原始數據的base64編碼
+ * @param options.isBigEndian 是否使用大端序讀取(默認小端序)
  * @returns 解析後的JavaScript對象數組
  */
 export function toJS<T extends ObjectFormat>(
-  buf: Buffer | ArrayBuffer, 
-  recordLength: number, 
-  format: T, 
-  keepBase64?: boolean, 
-  isBigEndian = false
+  buf: Buffer | ArrayBuffer,
+  format: T,
+  options?: {
+    recordLength?: number;
+    keepBase64?: boolean;
+    isBigEndian?: boolean;
+    /** @internal 預先解析嘅格式，避免重複解析 */
+    _parsed?: ParsedFormat;
+  }
 ): Array<InferObjectFormat<T>> {
     // 如果輸入是 ArrayBuffer，轉換為 Buffer
     const buffer = buf instanceof ArrayBuffer ? Buffer.from(new Uint8Array(buf)) : buf;
-    
-    // 第一步：解析格式定義，獲取經過驗證和處理嘅格式項列表
-    // 呢一步會將原始格式定義轉換成標準化嘅內部格式，以便後續嘅解析工作
-    const { items: parsedItems } = parseFormat(format);
-    
+
+    const keepBase64 = options?.keepBase64 ?? false;
+    const isBigEndian = options?.isBigEndian ?? false;
+
+    // 第一步：使用預先解析嘅格式或重新解析
+    const { items: parsedItems } = options?._parsed ?? parseFormat(format);
+
+    // 計算記錄長度（如果未提供，自動計算）
+    const recordLength = options?.recordLength ?? calculateLength(format);
+
     // 第二步：計算數據中包含的記錄數量
     // 將緩衝區總長度除以每條記錄嘅長度，得出有幾多條記錄
     const numRecords = Math.floor(buffer.length / recordLength);
@@ -831,10 +841,8 @@ export function toJS<T extends ObjectFormat>(
                     // 呼叫 toJS 自身處理子格式，實現了嵌套對象嘅解析
                     const subResults = toJS(
                         subRecordBuf,    // 子記錄數據
-                        resultLength,    // 子記錄長度
                         subFormat,       // 子格式定義
-                        false,           // 不保留 base64
-                        isBigEndian,     // 保持同樣嘅字節序
+                        { recordLength: resultLength, isBigEndian },
                     );
 
                     // 獲取子格式解析結果
@@ -921,22 +929,32 @@ export function toJS<T extends ObjectFormat>(
 /**
  * 將JavaScript對象轉換為二進制數據
  * @param arr JavaScript對象數組
- * @param recordLength 每個記錄的長度(位元組)
  * @param format 格式定義
- * @param isBigEndian 是否使用大端序寫入(默認小端序)
- * @param returnType 指定返回類型，'buffer' 或 'arraybuffer'
+ * @param options 選項
+ * @param options.recordLength 每個記錄的長度(位元組)，默認自動計算
+ * @param options.isBigEndian 是否使用大端序寫入(默認小端序)
+ * @param options.returnType 指定返回類型，'buffer' 或 'arraybuffer'
  * @returns 包含二進制數據的Buffer或ArrayBuffer
  */
 export function fromJS<T extends ObjectFormat>(
-  arr: Array<InferObjectFormat<T>>, 
-  recordLength: number, 
-  format: T, 
-  isBigEndian = false,
-  returnType: 'buffer' | 'arraybuffer' = 'buffer'
+  arr: Array<InferObjectFormat<T>>,
+  format: T,
+  options?: {
+    recordLength?: number;
+    isBigEndian?: boolean;
+    returnType?: 'buffer' | 'arraybuffer';
+    /** @internal 預先解析嘅格式，避免重複解析 */
+    _parsed?: ParsedFormat;
+  }
 ): Buffer | ArrayBuffer {
-    // 第一步：解析格式定義，獲取經過驗證和處理嘅格式項列表
-    // 呢一步確保格式定義係有效嘅，並將其轉換為內部使用嘅標準格式
-    const { items: parsedItems } = parseFormat(format);
+    const isBigEndian = options?.isBigEndian ?? false;
+    const returnType = options?.returnType ?? 'buffer';
+
+    // 第一步：使用預先解析嘅格式或重新解析
+    const { items: parsedItems } = options?._parsed ?? parseFormat(format);
+
+    // 計算記錄長度（如果未提供，自動計算）
+    const recordLength = options?.recordLength ?? calculateLength(format);
     
     // 第二步：初始化 Buffer 數組，用於存儲每個記錄嘅二進制數據
     // 每個 JavaScript 對象會轉換成一個 Buffer，最後合併
@@ -987,17 +1005,18 @@ export function fromJS<T extends ObjectFormat>(
                 fieldData = [fieldData] as any;
             }
             
-            // 第九步：確保數據是數組形式，方便統一處理
-            // 無論原始數據係單值還是數組，都轉換為數組形式處理
+            // 第九步：應用 writeTransform（與 readTransform 對稱：非數組傳單值，數組傳整個數組）
+            if (writeTransform) {
+                fieldData = arrayLength ? writeTransform(fieldData) : writeTransform(fieldData);
+            }
+
+            // 確保數據是數組形式，方便統一處理
             const dataArray = Array.isArray(fieldData) ? fieldData : [fieldData];
             const numWrites = arrayLength || 1; // 需要寫入嘅元素數量
 
-            // 先應用 writeTransform
-            const transformedArray = writeTransform ? writeTransform(dataArray) : dataArray;
-
-            // 第十步：循環寫入每個元素
-            for (let i = 0; i < numWrites && i < transformedArray.length; i++) {
-                const currentValue = transformedArray[i];
+            // 第十步：循環寫入每個元素（writeTransform 已經喺上面應用，呢度唔再重複）
+            for (let i = 0; i < numWrites && i < dataArray.length; i++) {
+                const currentValue = dataArray[i];
                 
                 // 跳過未定義的值
                 // 如果某個元素未定義，保持該位置嘅二進制數據不變
@@ -1015,7 +1034,7 @@ export function fromJS<T extends ObjectFormat>(
                     
                     // 遞歸處理子格式數據，轉換為 Buffer
                     // 呼叫 fromJS 自身處理子格式，實現了嵌套對象嘅轉換
-                    const subRecordBuf = fromJS([currentValue], resultLength, subFormat, isBigEndian, 'buffer') as Buffer;
+                    const subRecordBuf = fromJS([currentValue], subFormat, { recordLength: resultLength, isBigEndian, returnType: 'buffer' }) as Buffer;
                     
                     // 將子記錄 Buffer 複製到主記錄 Buffer 中
                     // 使用 copy 方法將子記錄嘅二進制數據複製到正確嘅位置
@@ -1029,14 +1048,13 @@ export function fromJS<T extends ObjectFormat>(
                             recordBuf,
                         offset + (i * (bitLength / 8)), // 計算起始位置
                         (bitLength / 8),                   // 計算長度（位元轉位元組）
-                        writeTransform ? String(writeTransform(currentValue)) : String(currentValue)  // 如果有 writeTransform 就轉換，冇就直接用原始值
+                        String(currentValue)
                     );
                 }
                 // 情況 3：處理 ArrayBuffer 類型
                 else if (type === 'arraybuffer') {
-                    // 應用 writeTransform 轉換值（確保是 Buffer）
-                    const bufferValue = writeTransform ? writeTransform(currentValue) : currentValue;
-                    
+                    const bufferValue = currentValue;
+
                     // 計算目標位置和長度
                     const targetStart = offset + (i * (bitLength / 8));
                     const length = bitLength / 8;
@@ -1062,13 +1080,10 @@ export function fromJS<T extends ObjectFormat>(
                     // 計算起始位元位置
                     const correctedBitOffset = (bitOffset + i * bitLength) % 8;
 
-                    // 通過 writeTransform 轉換值
-                    const transformedValue = writeTransform ? writeTransform(currentValue) : currentValue;
-                    
                     // 根據類型進行適當的處理
                     // 布爾類型：轉換為 0 或 1
                     if (type === 'boolean') {
-                        const boolValue = transformedValue ? 1 : 0;
+                        const boolValue = currentValue ? 1 : 0;
                         // 寫入數值到 Buffer
                     writeBitsFn(
                         recordBuf,
@@ -1081,9 +1096,9 @@ export function fromJS<T extends ObjectFormat>(
                     // BigInt 類型：使用專門的 BigInt 寫入函數
                     else if (type === 'bigint') {
                         // 如果 transformedValue 不是 BigInt 類型，轉換為 BigInt
-                        const bigintValue = typeof transformedValue === 'bigint' 
-                            ? transformedValue 
-                            : BigInt(transformedValue);
+                        const bigintValue = typeof currentValue === 'bigint'
+                            ? currentValue
+                            : BigInt(currentValue);
                         
                         // 使用專門的 BigInt 寫入函數
                         // bitOffset 必須是 8 的整數倍，否則無法正確寫入 64 位整數
@@ -1106,7 +1121,7 @@ export function fromJS<T extends ObjectFormat>(
                             correctedStartByte,
                             correctedBitOffset,
                             bitLength,
-                            Number(transformedValue) // 確保是數字類型
+                            Number(currentValue) // 確保是數字類型
                         );
                     }
                 }
@@ -1162,7 +1177,8 @@ export function calculateLength(format: ObjectFormat): number {
     let maxEndByte = 0;
     
     for (const item of items) {
-        const itemBits = item.offset * 8 + item.bitOffset + item.bitLength;
+        const elementCount = item.arrayLength || 1;
+        const itemBits = item.offset * 8 + item.bitOffset + item.bitLength * elementCount;
         const itemEndByte = Math.ceil(itemBits / 8);
         maxEndByte = Math.max(maxEndByte, itemEndByte);
     }
@@ -1181,13 +1197,12 @@ export function calculateLength(format: ObjectFormat): number {
 export function createBuffer<T extends ObjectFormat>(
     data: InferObjectFormat<T>,
     format: T,
-    isBigEndian = false,
-    returnType: 'buffer' | 'arraybuffer' = 'buffer'
+    options?: {
+        isBigEndian?: boolean;
+        returnType?: 'buffer' | 'arraybuffer';
+    }
 ): Buffer | ArrayBuffer {
-    // 計算所需的緩衝區長度
-    const length = calculateLength(format);
-    // 調用 fromJS 函數將數據轉換為二進制
-    return fromJS([data], length, format, isBigEndian, returnType);
+    return fromJS([data], format, options);
 }
 
 /**
@@ -1280,17 +1295,7 @@ export class Bitten<T extends ObjectFormat = ObjectFormat, D = InferObjectFormat
     this.parsedFormat = parseFormat(this.format);
     
     // 計算或使用提供嘅記錄長度
-    if (options?.recordLength !== undefined) {
-      this.recordLength = options.recordLength;
-    } else {
-      let maxEndByte = 0;
-      for (const item of this.parsedFormat.items) {
-        const itemBits = item.offset * 8 + item.bitOffset + item.bitLength;
-        const itemEndByte = Math.ceil(itemBits / 8);
-        maxEndByte = Math.max(maxEndByte, itemEndByte);
-      }
-      this.recordLength = maxEndByte;
-    }
+    this.recordLength = options?.recordLength ?? calculateLength(this.format);
     
     // 設置大小端序
     this.isBigEndian = options?.isBigEndian ?? false;
@@ -1306,11 +1311,14 @@ export class Bitten<T extends ObjectFormat = ObjectFormat, D = InferObjectFormat
     keepBase64?: boolean
   }): R {
     const result = toJS(
-      buffer, 
-      this.recordLength, 
-      this.format, 
-      options?.keepBase64, 
-      this.isBigEndian
+      buffer,
+      this.format,
+      {
+        recordLength: this.recordLength,
+        keepBase64: options?.keepBase64,
+        isBigEndian: this.isBigEndian,
+        _parsed: this.parsedFormat,
+      }
     );
     
     // toJS 始終返回陣列，我們只返回陣列嘅第一個元素
@@ -1331,11 +1339,14 @@ export class Bitten<T extends ObjectFormat = ObjectFormat, D = InferObjectFormat
   toBuffer(data: D, returnType: 'buffer' | 'arraybuffer' = 'buffer'): Buffer | ArrayBuffer {
     // 將單個對象包裝為陣列，因為 fromJS 需要陣列作為輸入
     return fromJS(
-      [data as InferObjectFormat<T>], 
-      this.recordLength, 
-      this.format, 
-      this.isBigEndian,
-      returnType
+      [data as InferObjectFormat<T>],
+      this.format,
+      {
+        recordLength: this.recordLength,
+        isBigEndian: this.isBigEndian,
+        returnType,
+        _parsed: this.parsedFormat,
+      }
     );
   }
 }

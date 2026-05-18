@@ -1,0 +1,7 @@
+- [User: Antony](user_antony.md) — Experienced JS/TS dev, PES modding tools, writes comments in Cantonese
+- [Node 24 via nvm](feedback_node_version.md) — Always use nvm, not PATH hacks; Node 24 is default
+- [No console.log hacking](feedback_no_console_hack.md) — Use separate logger, don't monkey-patch console
+- [Share strings](feedback_no_duplicate_strings.md) — DRY: don't duplicate template literals across log+console
+- [Neight adapter](project_neight_adapter.md) — Neight is now a thin adapter converting array→object format for bitten
+- [PES Tung Fam webapp](project_pes_tungfam.md) — Vite+React app at ~/git/pes-tungfam-webapp, uses bitten via neight
+- [English comments](feedback_english_comments.md) — New code comments must be in English, not Cantonese
